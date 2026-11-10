@@ -12,27 +12,25 @@ using Object = UnityEngine.Object;
 
 namespace SurvivalLog.DailySurprise;
 
-/// <summary>喜从天降：每个游戏日睡醒触发一个随机天降事件（好运/平淡/霉运）。Task 6=四表全量注入
-/// （TableInjector + InjectorMapping）+ DebugForceEventId 强制触发链路；掷骰/发放按计划逐任务落地，
-/// 机制见 spec docs/superpowers/specs/2026-11-10-daily-surprise-design.md 与 DESIGN.md。</summary>
+/// <summary>喜从天降：每个游戏日睡醒触发一个随机天降事件（好运/平淡/霉运）。Task 7=每日触发链
+/// （CaptureDaySnapshot 补丁+灾后门控+同日幂等+DayWatcher 兜底）；机制见 spec
+/// docs/superpowers/specs/2026-11-10-daily-surprise-design.md 与 DESIGN.md。</summary>
 [BepInPlugin(Ds.Guid, Ds.Name, Ds.Version)]
 public sealed class DailySurprisePlugin : BasePlugin
 {
     internal static new ManualLogSource Log; // new：显式遮蔽 BasePlugin.Log 实例属性（沿用 EndlessGuard 命名）
 
-    /// <summary>首验调试（Task 2）：>0=进档且表就绪后对注入事件行强制触发一次（写 trace\force.txt）。
-    /// 用**事件行** ID（99200~99244 任意目录事件，如 99205=G1 直发/99224=L1 选项）。0=关闭。</summary>
-    internal static ConfigEntry<int> DebugForceEventId;
-
     public override void Load()
     {
         Log = base.Log;
-        DebugForceEventId = Config.Bind("General", "DebugForceEventId", 0,
-            "首验调试：>0=进档后对注入事件行强制触发一次（事件行 ID 99200~99244，如 99205=G1；99250 是 RewardSet ID 无效）。0=关闭。每进档一次只触发一次，结果写 BepInEx\\plugins-data\\DailySurprise\\trace\\force.txt。");
+        DsConfig.Init(Config);   // cfg 全 9 项（spec §7.4 正式 8 项 + DebugForceEventId）集中绑定，热更=实时取值
 
         // 自证文件 trace\_DONE.txt（内容=GUID+时间戳，硬规则9：不依赖 LogOutput.log）
         DsTrace.Write("_DONE", Ds.Guid);
-        Log.LogInfo("[DailySurprise] " + Ds.Name + " v" + Ds.Version + " loaded（Task 2 spike：表注入+强制触发）");
+        Log.LogInfo("[DailySurprise] " + Ds.Name + " v" + Ds.Version + " loaded（Task 7：每日触发链）");
+
+        // 逐类隔离挂载 Harmony 补丁（SaveMgr 定案模式：PatchAll 整包挂载时单个 IL 错炸整个 Load）
+        InstallPatches();
 
         // 2s 巡检 ticker（EndlessGuard GuardTicker 已实证注册模式：ClassInjector + 独立 GameObject
         // + DontDestroyOnLoad + AddComponent；public Update + IntPtr 双构造器——interop 注入类的引擎
@@ -45,11 +43,24 @@ public sealed class DailySurprisePlugin : BasePlugin
 
         SurvivalLog.ModShared.WelcomeTip.Install(Log);
     }
+
+    /// <summary>逐类隔离挂载 Harmony 补丁（SaveMgr InstallPatches 同款；本仓 Game/Trigger/ 下
+    /// 标注 [HarmonyPatch] 的类各挂一个，单个失败只禁自身并留 trace）。</summary>
+    private static void InstallPatches()
+    {
+        var harmony = new HarmonyLib.Harmony(Ds.Guid);
+        foreach (var t in typeof(DailySurprisePlugin).Assembly.GetTypes())
+        {
+            if (!t.IsClass || !t.IsDefined(typeof(HarmonyLib.HarmonyPatch), false)) continue;
+            try { harmony.CreateClassProcessor(t).Patch(); DsTrace.Write("daily", "patch 挂载成功：" + t.Name); }
+            catch (Exception e) { DsTrace.Write("daily", "patch 挂载失败 " + t.Name + ": " + e.Message); }
+        }
+    }
 }
 
 /// <summary>2s 轮询（EndlessGuard GuardTicker 同款形态）：SpikeForce 单步=表注入哨兵复查 +
-/// （cfg 开着时）强制触发一次。async 状态机 MoveNext 禁挂铁律（2026-10-26 两连事故定案）与本类
-/// 无关——本 mod 不挂 Harmony，仅轮询。</summary>
+/// （cfg 开着时）强制触发一次；DayWatcher 单步=日翻兜底（Task 7）。async 状态机 MoveNext 禁挂铁律
+/// （2026-10-26 两连事故定案）与本类无关——ticker 仅轮询，Harmony 只挂普通公开方法（InstallPatches）。</summary>
 internal sealed class DsTicker : MonoBehaviour
 {
     private float _acc;
@@ -62,6 +73,8 @@ internal sealed class DsTicker : MonoBehaviour
         _acc = 0;
         try { SpikeForce.OnStep(); }
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "SpikeForce: " + e.Message); }
+        try { DayWatcher.Step(); }   // 兜底日翻检测（SaveMgr 模式；OnNewDay 同日幂等防双触发）
+        catch (Exception e) { DsTrace.WriteThrottled("ticker", "DayWatcher: " + e.Message); }
     }
 }
 
@@ -80,7 +93,7 @@ internal static class SpikeForce
         var report = TableInjector.EnsureInjected();   // 未就绪=下轮再试（内部自带 try/catch+trace）
         if (report == null) return;
 
-        var id = DailySurprisePlugin.DebugForceEventId?.Value ?? 0;
+        var id = DsConfig.DebugForceEventId?.Value ?? 0;
         if (id <= 0) return;
 
         var dem = LiveDem();

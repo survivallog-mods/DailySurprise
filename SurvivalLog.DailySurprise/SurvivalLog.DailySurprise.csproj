@@ -50,6 +50,10 @@
       <HintPath>E:\SteamLibrary\steamapps\common\Survival Log\BepInEx\interop\HotUpdate.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>E:\SteamLibrary\steamapps\common\Survival Log\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>E:\SteamLibrary\steamapps\common\Survival Log\BepInEx\interop\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>

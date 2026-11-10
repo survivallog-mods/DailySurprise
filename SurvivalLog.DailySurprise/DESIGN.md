@@ -83,3 +83,42 @@
   UI 支持 → Task 11 IconDrop 落地时实测（EndlessGuard wave8 已证 WebUI/ToolTable.html 通道支持相对路径，
   事件卡 UI 是否同源待验）。
 - 结论：___
+
+### Task 7：每日触发链（补丁+模式门控+幂等+兜底）（2026-11-10）
+
+- 状态：代码侧门通过（`dotnet.exe build` 退出码 0 零警告；`dotnet.exe test` 124/124 通过，
+  新增 DailyFlowLogicTests 20 例）。实机验证清单（见 task-7-report.md）移交作者执行，**结论待回填**。
+
+#### 7.0 查证记录（静态核对，gamekb 2026-11-05_26454866）
+
+- **模式门控**：`WorldStateType` 枚举仅二值——`PreDisaster=1 / PostDisaster=2`（dump.cs:58256~58262）。
+  读点=`GameTimeManager.WorldStateType`（public getter，类 dump.cs:421227；经
+  `BattleLogicWorld._GameTimeManager` internal 属性 dump.cs:385813，interop 代理公开）。
+  判定口径=**值≠1（PreDisaster）即放行**；读不到世界态=不放行（安全向，宁漏勿误）。
+- **无尽档映射（静态结论，实机复核）**：`Config_Chapter.json` 全 9 行——仅章节 1（灾前倒计时）`WorldStateType=1`；
+  章节 0/2/1000~1005（灾后主章+全部探索章，无尽期在此）均=2。无尽标识旁证：`EndlessKind`
+  {None=0,Pure=1,Story=2,Casual=3}（dump.cs:70236）、`HistoryChild.EndlessStartDay`（dump.cs:~80861）、
+  `TowerWaveManager.IsActive`（EndlessGuard 在役无尽判定）。**预期无尽档 WorldStateType=2→放行**；
+  每日触发记录行尾带 `WorldStateType=N` 观测值，实机回报后固化。
+- **资格查询**：电器=`Config_Furniture.IsElectrical`（bool，dump.cs:36922；表数据 137 行电器）；
+  家具列表=`AgentManager.GetAllFurnitures()`（dump.cs:379587）；耐久组件=
+  `FurnitureDurabilityComponent`（dump.cs:374068）经 `AgentTools.GetAgentComponent<T>`（EndlessGuard 在役）；
+  生鲜=`Config_Item.Life>0`（dump.cs:40276）且 `It_Rot_Product_Id` 非空（dump.cs:40280，表数据 2700 行），
+  未腐坏=`ItemData.TimeLeft>0`（dump.cs:424047），背包 owner=`ReduxUISystem.reduxStoreLayer.dataTree
+  [State_Data_Player].PlayerId`（CabinetEverywhere 校准点 T14 在役）；铁制零件=20362（表数据「铁制零件」），
+  计数=`ItemManager.GetLeadingRoleItemCount(int)`（游戏原生主角持有口径）。**查询失败=无资格**（安全向）。
+- **结算锚点**：`GameSaveManager.CaptureDaySnapshot(int day)`（public，dump.cs:88810）；SaveMgr 同点在役。
+- **存档名/日翻**：`GetLastPlayFileName`/`GetHistoryList`/`EnsureHistoryV2Migrated`（dump.cs:88156/88135/88210）；
+  局内读名 NRE→菜单期缓存回落（SaveMgr 2026-10-31 实证）。
+
+#### 7.1 触发链形态
+
+- `Patch_CaptureDaySnapshot`（Harmony postfix，TargetMethod 反射+参数类型钉死）→ `DailyFlow.OnNewDay(day)`；
+  `DayWatcher`（2s ticker 轮询存档 meta 日增量，hook 60s 内让路）兜底；同日幂等（`LastTriggeredDay`）
+  吸收双触发与读档回昨天重睡。
+- 状态槽：`plugins-data\DailySurprise\saves\<存档基名>\state.json`（StateStore 原子写）。
+- trace 口径：`trace\daily.txt` 每天至多一行触发记录（day+kind+event+标题+pity/subst/perm+badStreak/
+  permUsed/disasters+card/talk 返回值+WorldStateType）；灾前静默记 `trace\gate.txt`（节流）。
+- cfg 面落地（DsConfig）：`Difficulty/CustomGoodPercent/CustomPlainPercent/CustomBadPercent/
+  CustomRewardMultiplier/CustomLossMultiplier/ShowPlainPopup/AllowPermanentNegative/DebugForceEventId`，
+  读取实时取值=热更；非法值由 DifficultyTable 回退档 3（T3 已测）。
