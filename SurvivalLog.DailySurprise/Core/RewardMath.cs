@@ -3,8 +3,9 @@ using System.Collections.Generic;
 
 namespace SurvivalLog.DailySurprise;
 
-/// <summary>奖励数学纯函数（Task 8；spec §5.5 倍率轴 + §5.3 变体映射 + §5.2 挂账）。
-/// Game 层 RewardExecutor 与 Game/Trigger 补发链共同消费；零 BepInEx/il2cpp 引用（Tests 源链接钉死）。
+/// <summary>奖励/惩罚数学纯函数（Task 8 spec §5.5 倍率轴 + §5.3 变体映射 + §5.2 挂账；
+/// Task 9 加损失轴 ScaleLoss 与 D1 分流 PlanPermAttrLoss）。
+/// Game 层 RewardExecutor/PunishmentOps 与 Game/Trigger 补发链共同消费；零 BepInEx/il2cpp 引用（Tests 源链接钉死）。
 /// 变体 Id 权威=<see cref="BuffBlueprints.FortuneIds"/>[1..5]=99285~99289（命运眷顾Ⅰ~Ⅴ）、
 /// <see cref="BuffBlueprints.SlumpIds"/>[2..5]=99290~99293（行运低潮Ⅱ~Ⅴ）。</summary>
 public static class RewardMath
@@ -18,6 +19,48 @@ public static class RewardMath
         if (baseCount <= 0) return 0;   // 基准 0/负=数据错误，不发明（编码层 RewardEncoding 同口径跳过）
         var scaled = Math.Round(baseCount * mult, MidpointRounding.AwayFromZero);
         return Math.Max(1, (int)scaled);
+    }
+
+    // ———————————————— 损失量缩放（Task 9 惩罚侧） ————————————————
+
+    /// <summary>损失量缩放（spec §5.5 损失轴；Task 9 产出接口逐字）：baseValue×lossMult
+    /// 四舍五入到 0.1（<see cref="MidpointRounding.AwayFromZero"/>：26.25→26.3，非银行家舍入）。
+    /// PunishmentOps 消费（耐久百分比 pct 的缩放）；baseValue/lossMult≤0 防御性归 0
+    ///（负损失=反向增益，安全向 0；倍率 0 不会出现在 Resolve 产出，补发档缺省 0 同归 0）。</summary>
+    public static double ScaleLoss(double baseValue, double lossMult)
+    {
+        if (baseValue <= 0 || lossMult <= 0) return 0;
+        return Math.Round(baseValue * lossMult, 1, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>D1 代价的属性池（AttrName 上限系五维，dump.cs:57466）：
+    /// MaxSatiety=101 / MaxMorale=102 / MaxStamina=103 / MaxHealth=104 / MaxVitality=105。</summary>
+    public static readonly int[] PermAttrPool = { 101, 102, 103, 104, 105 };
+
+    /// <summary>PlanPermAttrLoss 的计划形态：UseAttrLoss=true → 扣 AttrId by Loss（负数，
+    /// 强化层 AddStrengtheningValue 永久生效）；false → 施加 SlumpBuffId 行运低潮变体
+    ///（spec §8.9 D1 备用路径）。未携带字段恒 0（调用方不得消费）。</summary>
+    public sealed class PermAttrPlan
+    {
+        public bool UseAttrLoss;
+        public int AttrId;
+        public int Loss;
+        public int SlumpBuffId;
+    }
+
+    /// <summary>D1 代价分流计划（纯函数，Task 9）：<paramref name="allowPermanentNegative"/>=false
+    /// → 不扣属性，替补行运低潮（<see cref="PickSlump"/> 按损失倍率选 Ⅱ~Ⅴ；rand 不被消费）；
+    /// true → 池内种子化随机一项属性，扣量 = −round(10×lossMult)（AwayFromZero，17.5→18，至少 −1）。
+    /// 自然触发链的关档替补由 LuckEngine（PermNegativeCap=0→D2）先行兜住；本分流兜
+    /// DebugForceEventId 强制 D1 直达执行器的路径。</summary>
+    public static PermAttrPlan PlanPermAttrLoss(bool allowPermanentNegative, double lossMult, Random rand)
+    {
+        if (!allowPermanentNegative)
+            return new PermAttrPlan { UseAttrLoss = false, SlumpBuffId = PickSlump(lossMult) };
+
+        var attrId = PermAttrPool[rand != null ? rand.Next(PermAttrPool.Length) : 0];
+        var loss = -(int)Math.Round(10 * Math.Max(0, lossMult), MidpointRounding.AwayFromZero);
+        return new PermAttrPlan { UseAttrLoss = true, AttrId = attrId, Loss = Math.Min(loss, -1) };
     }
 
     // ———————————————— 背包拒收挂账 ————————————————

@@ -15,7 +15,8 @@ internal sealed class GrantResult
 
 /// <summary>奖励执行器（Task 8；Controller 裁定：事件行 StartRewardSetId=0，全部奖励统一代码路径）。
 /// 消费 RewardSpec 全形状（Items/Buffs/Attrs/PermBuffByTier/RandomPickOne）；Op 系（耐久/腐坏/偷窃/
-/// 永久属性）跳过留给 Task 9 PunishmentOps；Choices 留给 Task 10 选项接线。
+/// 永久属性）Task 9 起分流到 <see cref="PunishmentOps.Apply"/>（Summary 进 grants 行 + punish.txt）；
+/// Choices 留给 Task 10 选项接线。
 /// 发放通道取证（gamekb 2026-11-05_26454866 dump.cs）：
 /// - 物品=ItemManager.TryAddItemToBag(long ownerId,int cfgId,int count,int startTime,int timeLeft,
 ///   int useTimes=0,float timeScale=1,Func&lt;int,int,int,int,bool&gt; onFailed,int maxUseTimes=0,
@@ -59,7 +60,10 @@ internal static class RewardExecutor
 
         if (spec.Op != SpecialOp.None)
         {
-            sb.Append(" op=").Append(spec.Op).Append("(Task9)");   // 本任务不实现（跳过）
+            // Task 9 分流：Op 系（耐久/永久属性/腐坏/偷窃）归 PunishmentOps（Apply 全隔离不抛出，
+            // Summary 进本行 + 一行汇总另写 trace\punish.txt）
+            sb.Append(" op=").Append(spec.Op).Append('[')
+                .Append(PunishmentOps.Apply(spec.Op, spec.OpParam, p.LossMult, rand)).Append(']');
             acted = true;
         }
 
