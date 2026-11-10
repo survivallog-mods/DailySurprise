@@ -52,6 +52,9 @@ public static class BuffBlueprints
                     ["Des_Local"] = "半夜想起末日前的事，心里堵得慌：心态与精力获得效率各-0.5%，永久生效",
                     ["BuffDuring"] = -1,   // 永久（与源行一致，显式钉死）
                     ["Overlay"] = 0,
+                    // Effect 数值显式钉死（Task 6 顺手修①：照抄克隆效果，防 gamekb 源行 200024112 漂移）
+                    ["BuffMoraleAdd"] = -0.005,
+                    ["BuffStaminaAdd"] = -0.005,
                 },
             },
 
@@ -67,6 +70,8 @@ public static class BuffBlueprints
                     ["Des_Local"] = "那晚之后你总觉得睡不踏实：精力上限-20，永久生效",
                     ["BuffDuring"] = -1,   // 永久（与源行一致，显式钉死）
                     ["Overlay"] = 0,
+                    // Effect 数值显式钉死（Task 6 顺手修①：防源行 200080007 漂移）
+                    ["BuffStaminaMax"] = -20,
                 },
             },
 

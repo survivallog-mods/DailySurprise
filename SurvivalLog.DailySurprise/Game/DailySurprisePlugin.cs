@@ -12,8 +12,8 @@ using Object = UnityEngine.Object;
 
 namespace SurvivalLog.DailySurprise;
 
-/// <summary>喜从天降：每个游戏日睡醒触发一个随机天降事件（好运/平淡/霉运）。Task 2=首验 spike：
-/// 表注入（TableInjector）+ DebugForceEventId 强制触发链路实证；掷骰/发放按计划逐任务落地，
+/// <summary>喜从天降：每个游戏日睡醒触发一个随机天降事件（好运/平淡/霉运）。Task 6=四表全量注入
+/// （TableInjector + InjectorMapping）+ DebugForceEventId 强制触发链路；掷骰/发放按计划逐任务落地，
 /// 机制见 spec docs/superpowers/specs/2026-11-10-daily-surprise-design.md 与 DESIGN.md。</summary>
 [BepInPlugin(Ds.Guid, Ds.Name, Ds.Version)]
 public sealed class DailySurprisePlugin : BasePlugin
@@ -21,21 +21,14 @@ public sealed class DailySurprisePlugin : BasePlugin
     internal static new ManualLogSource Log; // new：显式遮蔽 BasePlugin.Log 实例属性（沿用 EndlessGuard 命名）
 
     /// <summary>首验调试（Task 2）：>0=进档且表就绪后对注入事件行强制触发一次（写 trace\force.txt）。
-    /// 用**事件行** ID（99200）；99250 是 RewardSet ID，填它无效（brief Step 3 口径）。0=关闭。</summary>
+    /// 用**事件行** ID（99200~99244 任意目录事件，如 99205=G1 直发/99224=L1 选项）。0=关闭。</summary>
     internal static ConfigEntry<int> DebugForceEventId;
-
-    /// <summary>首验调试（Task 2，验证B 开关，超出 brief cfg 清单的增补）：true=注入行带
-    /// ChoseName_Local=[拿走,算了] 两选项（样式抄原生行 103）；false=无选项直发（样式抄原生行
-    /// 10011，验证A）。改后重进档生效（行形态哨兵自动重拍）。Task 3 起 EventCatalog 接管时移除。</summary>
-    internal static ConfigEntry<bool> DebugSpikeChose;
 
     public override void Load()
     {
         Log = base.Log;
         DebugForceEventId = Config.Bind("General", "DebugForceEventId", 0,
-            "首验调试：>0=进档后对注入事件行强制触发一次（事件行 ID，如 99200；99250 是 RewardSet ID 无效）。0=关闭。每进档一次只触发一次，结果写 BepInEx\\plugins-data\\DailySurprise\\trace\\force.txt。");
-        DebugSpikeChose = Config.Bind("General", "DebugSpikeChose", false,
-            "首验调试（验证B）：true=注入事件行带 [拿走,算了] 两选项（选项 UI 观察）；false=无选项直发（弹窗+自动发放观察）。改后重进档生效。");
+            "首验调试：>0=进档后对注入事件行强制触发一次（事件行 ID 99200~99244，如 99205=G1；99250 是 RewardSet ID 无效）。0=关闭。每进档一次只触发一次，结果写 BepInEx\\plugins-data\\DailySurprise\\trace\\force.txt。");
 
         // 自证文件 trace\_DONE.txt（内容=GUID+时间戳，硬规则9：不依赖 LogOutput.log）
         DsTrace.Write("_DONE", Ds.Guid);
@@ -68,11 +61,12 @@ internal sealed class DsTicker : MonoBehaviour
         if (_acc < 2f) return;
         _acc = 0;
         try { SpikeForce.OnStep(); }
-        catch (Exception e) { DsTrace.Write("ticker", "SpikeForce: " + e.Message); }
+        catch (Exception e) { DsTrace.WriteThrottled("ticker", "SpikeForce: " + e.Message); }
     }
 }
 
-/// <summary>首验强制触发器（Task 2 专用）：表全绿后，若 DebugForceEventId&gt;0 且本档未触发过
+/// <summary>强制触发器（Task 2 起常驻调试链路，Task 6 起可指向任意目录事件）：表全绿后，若
+/// DebugForceEventId&gt;0 且本档未触发过
 ///（防重复=管理器实例身份 + cfg 值双指纹：进档/换档新建 BattleLogicWorld、或作者改 cfg 热更，
 /// 任一变化即重新武装）→ TryForceTriggerEvent(id) 一次，返回值与上下文写 trace\force.txt。
 /// 管理器不可达（主菜单/场景切换空窗）=本轮静默，下轮再试。</summary>
@@ -104,10 +98,21 @@ internal static class SpikeForce
         }
         _forcedOn = dem; _forcedId = id;
         DsTrace.Write("force", "TryForceTriggerEvent(" + id + ") -> " + ok
-            + "（变体=" + (DailySurprisePlugin.DebugSpikeChose is { Value: true } ? "B选项" : "A直发")
-            + "，行在册 event/rewardSet=" + report.Events + "/" + report.RewardSets
-            + "。预期：弹事件卡；A 变体关窗后背包 4×「90压缩饼干」=StartRewardSet 自动发放实证）");
+            + "（" + DescribeEvent(id)
+            + "，在册 event/rewardSet/buff/effect=" + report.Events + "/" + report.RewardSets
+            + "/" + report.BuffRows + "/" + report.EffectRows
+            + "。预期：直发事件弹卡、关窗后自动发放（StartRewardSet）；选项事件（L1=99224/H3=99240）弹选项卡——选项接线 Task 10 落地前点选不生效）");
         DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + ok);
+    }
+
+    /// <summary>事件行描述（目录命中=Key+标题+样式；未命中=原样 id——目录外 id 也允许强制，
+    /// 观察原生行为用）。</summary>
+    private static string DescribeEvent(int id)
+    {
+        foreach (var e in EventCatalog.Events)
+            if (e.Id == id)
+                return e.Key + "「" + e.Title + "」" + (e.Reward is { Choices.Count: > 0 } ? "选项" : "直发");
+        return "非目录事件";
     }
 
     /// <summary>DynamicEventManager 可达性：BattleLogicWorld 单例 → _DynamicEventManager
@@ -147,5 +152,24 @@ internal static class DsTrace
                 $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n", Utf8NoBom);
         }
         catch { /* 自证失败绝不打扰游戏 */ }
+    }
+
+    /// <summary>节流写（Task 6 顺手修④）：同 category+message 每会话首见即写，其后每 50 次再写一次
+    /// （附计数）——ticker 级重复异常（2s 一条同文案）不再刷屏。与 Write 同为尽力而为、绝不打扰游戏。
+    /// 仅 ticker 单线程调用，无需加锁。</summary>
+    private static readonly System.Collections.Generic.Dictionary<string, int> ThrottleCounts = new();
+
+    internal static void WriteThrottled(string category, string message)
+    {
+        try
+        {
+            var key = category + "|" + message;
+            ThrottleCounts.TryGetValue(key, out var n);
+            n++;
+            ThrottleCounts[key] = n;
+            if (n == 1 || n % 50 == 0)
+                Write(category, n == 1 ? message : message + "（同因已累计 " + n + " 次，每 50 次记一次）");
+        }
+        catch { }
     }
 }

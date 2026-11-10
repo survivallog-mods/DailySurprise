@@ -17,6 +17,7 @@
     <Compile Include="../SurvivalLog.DailySurprise/Core/LuckEngine.cs" />
     <Compile Include="../SurvivalLog.DailySurprise/Core/EventCatalog.cs" />
     <Compile Include="../SurvivalLog.DailySurprise/Core/BuffBlueprints.cs" />
+    <Compile Include="../SurvivalLog.DailySurprise/Core/InjectorMapping.cs" />
     <Compile Include="../SurvivalLog.DailySurprise/Core/StateStore.cs" />
   </ItemGroup>
 

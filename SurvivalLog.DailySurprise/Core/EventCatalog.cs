@@ -53,6 +53,15 @@ public static class EventCatalog
     /// <summary>45 事件（构造顺序即消费顺序，见类注）。</summary>
     public static readonly IReadOnlyList<EventDef> Events = Build();
 
+    /// <summary>目录内下标（按 Id；注入映射的 RewardSet 编号用）；不在目录=-1。</summary>
+    public static int EventsIndexOf(EventDef e)
+    {
+        if (e == null) return -1;
+        for (var i = 0; i < Events.Count; i++)
+            if (Events[i].Id == e.Id) return i;
+        return -1;
+    }
+
     /// <summary>永久负面达上限（或 AllowPermanentNegative=false）时的替补映射（spec §5.4）：
     /// H1 心结→H4 重病、D1 代价→D2 雷击、D3 低语→H2 管道爆裂。</summary>
     public static readonly IReadOnlyDictionary<int, int> Substitutes = new Dictionary<int, int>
