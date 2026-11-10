@@ -13,6 +13,8 @@
   <ItemGroup>
     <Compile Include="../SurvivalLog.DailySurprise/Core/Ds.cs" />
     <Compile Include="../SurvivalLog.DailySurprise/Core/EventDef.cs" />
+    <Compile Include="../SurvivalLog.DailySurprise/Core/DifficultyTable.cs" />
+    <Compile Include="../SurvivalLog.DailySurprise/Core/LuckEngine.cs" />
   </ItemGroup>
 
   <ItemGroup>
