@@ -5,7 +5,8 @@ namespace SurvivalLog.DailySurprise;
 
 /// <summary>掷骰存档态（spec §5.1；由调用方在每日结算时更新，引擎只读不写）。
 /// BadStreak=连败天数（保底判定用）；YesterdayEventId=防连抽对照；
-/// PermNegativeUsed=永久负面已用次数；DisasterCount=统计字段（引擎不消费，Task 5+ 维护）。</summary>
+/// PermNegativeUsed=永久负面已用次数；DisasterCount=统计字段（引擎不消费，Task 5+ 维护）；
+/// PendingRewards=待发放奖励挂账（Task 5 加，StateStore 往返；引擎不消费）。</summary>
 public sealed class RollState
 {
     public int LastTriggeredDay;
@@ -13,6 +14,9 @@ public sealed class RollState
     public int PermNegativeUsed;
     public int YesterdayEventId;
     public int DisasterCount;
+
+    /// <summary>挂账奖励（默认空列表非 null；序列化忽略 null，Load 对缺字段旧档归一为空列表）。</summary>
+    public List<PendingReward> PendingRewards = new();
 }
 
 /// <summary>掷骰结果。EventId=0 是落空标记（好运/平淡整层无资格时返回，调用方自行处理如平淡静默）；
