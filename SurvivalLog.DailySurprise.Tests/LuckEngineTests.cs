@@ -236,6 +236,11 @@ public sealed class LuckEngineTests
     {
         Assert.Equal(new[] { 35d, 20d, 15d, 15d, 15d }, LuckEngine.PlainLayerWeights);
 
+        // 防御性副本（T3 遗留 Minor 修复）：外部拿到引用也污染不了引擎常量
+        var leaked = LuckEngine.PlainLayerWeights;
+        leaked[0] = 999;
+        Assert.Equal(new[] { 35d, 20d, 15d, 15d, 15d }, LuckEngine.PlainLayerWeights);
+
         var cands = new List<EventDef>
         {
             Ev(201, LuckKind.Plain, 0),

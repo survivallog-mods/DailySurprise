@@ -31,8 +31,12 @@ public struct RollOutcome
 /// 随机消费只经 rand.NextDouble（逐次可数：保底省一次、防连抽重掷恰好多一次）。</summary>
 public static class LuckEngine
 {
-    /// <summary>平淡档内 N 层权重（spec §8.1：N1=35、N2=20、N3=N4=N5=15）。</summary>
-    public static readonly double[] PlainLayerWeights = { 35, 20, 15, 15, 15 };
+    private static readonly double[] s_plainLayerWeights = { 35, 20, 15, 15, 15 };
+
+    /// <summary>平淡档内 N 层权重（spec §8.1：N1=35、N2=20、N3=N4=N5=15）。
+    /// 访问返回防御性副本（T3 遗留 Minor 修复：public static readonly 数组可被外部写污染）；
+    /// 引擎内部消费私有原数组，roll 热路径零克隆开销。</summary>
+    public static double[] PlainLayerWeights => (double[])s_plainLayerWeights.Clone();
 
     /// <summary>每日一掷（spec §5.1 主流程，逐条）：
     /// 1 保底（BadStreak≥PityDays 且 PityDays&gt;0 → 强制好运，跳过运势掷骰）；
@@ -91,7 +95,7 @@ public static class LuckEngine
     }
 
     private static double[] LayerWeights(DifficultyParams p, LuckKind kind) =>
-        kind == LuckKind.Good ? p.GoodRarity : kind == LuckKind.Bad ? p.BadRarity : PlainLayerWeights;
+        kind == LuckKind.Good ? p.GoodRarity : kind == LuckKind.Bad ? p.BadRarity : s_plainLayerWeights;
 
     /// <summary>运势档掷骰：Good→Plain→Bad 累计段（权重 0 的轴永不被掷中）。</summary>
     private static LuckKind RollKind(DifficultyParams p, Random rand)
