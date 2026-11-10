@@ -9,7 +9,10 @@ namespace SurvivalLog.DailySurprise;
 /// 链路：灾后门控 → 分槽 Load → ShouldTrigger（同日幂等）→ 表就绪探针 → DifficultyTable.Resolve
 ///（tier/自定义来自 DsConfig；非法值由 Resolve 回退档 3）→ LuckEngine.Roll（资格=EligibilityChecker，
 /// 永久负面/替补=EventCatalog）→ NextState 记账（Save 原子写）→ 按形态展示（事件卡 TryForceTriggerEvent
-/// 返回值 / 平淡静音 Unit_ShowHeadTalk）→ 每天恰好一行 trace\daily.txt（day+EventId+返回值+WorldStateType）。</summary>
+/// 返回值 / 平淡静音 Unit_ShowHeadTalk）→ **RewardExecutor.Grant 发放**（Task 8：物品×倍率缩放入包、
+/// 拒收入 PendingRewards 重存；事件行 StartRewardSetId=0 无原生直发，不存在双发）→
+/// 每天恰好一行 trace\daily.txt（day+EventId+返回值+granted/queued+WorldStateType）。
+/// 进档补发（PendingFlusher，DsTicker 驱动）先于本每日触发链执行。</summary>
 internal static partial class DailyFlow
 {
     /// <summary>灾前哨兵（WorldStateType.PreDisaster=1，dump.cs:58260；枚举仅二值 1/2，dump.cs:58256~58262）。</summary>
@@ -60,12 +63,13 @@ internal static partial class DailyFlow
             var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
             if (!DsConfig.PermNegativeAllowed)
                 p.PermNegativeCap = 0;   // 关=永久负面：每个 isPermNegative 命中立即走替补（spec §5.4）
+            var rand = new Random();     // 掷骰与发放共用一个随机源（RandomPickOne 择一也吃它）
             var outcome = LuckEngine.Roll(
                 p, state, EventCatalog.Events,
                 id => EligibilityChecker.IsEligible(EligibilityOf(id)),
                 IsPermNegative,
                 SubstituteOf,
-                new Random());
+                rand);
 
             // —— 记账（先于展示：Save 原子写是 mod 自身一致性；展示失败=当天视为落空，trace 可见不丢账）——
             var permGranted = !outcome.Substituted && IsPermNegative(outcome.EventId);
@@ -81,6 +85,21 @@ internal static partial class DailyFlow
                 how = "card=" + TriggerEventCard(outcome.EventId);
             else
                 how = "talk=" + ShowHeadTalk(def?.Dialogue ?? "");
+
+            // —— 发放（Task 8；Controller 裁定：事件行 StartRewardSetId=0，奖励统一代码路径，
+            //    展示后立即 Grant——物品按 p.RewardMult 缩放、拒收入队。落空/无载荷 spec=空操作）——
+            var context = "day=" + day + " event=" + outcome.EventId
+                + (def != null ? "「" + def.Title + "」" : "");
+            var grant = RewardExecutor.Grant(def?.Reward, p, rand, context);
+            if (grant.Queued.Count > 0)
+            {
+                // 挂账持久化：入队 spec=已缩放形状（补发 RewardMult=1 原样发），追加进 PendingRewards 重存
+                next.PendingRewards.AddRange(grant.Queued);
+                StateStore.Save(next, slotDir);
+                how += " queued=" + grant.Queued.Count;
+            }
+            if (grant.GrantedItems > 0)
+                how += " granted=" + grant.GrantedItems;
 
             DsTrace.Write("daily", "day=" + day + " kind=" + outcome.Kind + " event=" + outcome.EventId
                 + (def != null ? "「" + def.Title + "」" : "")
@@ -166,9 +185,10 @@ internal static partial class DailyFlow
         }
     }
 
-    /// <summary>头顶气泡（平淡静音）：主角模型经 WebGm.GetLeadingRoleModel（WelcomeTip 样板），
-    /// Unit_ShowHeadTalk(text, 3)（dump.cs:357769，interop 代理公开；During≈真实秒，实测定稿）。</summary>
-    private static bool ShowHeadTalk(string text)
+    /// <summary>头顶气泡（平淡静音 / PendingFlusher 补发提示共用）：主角模型经
+    /// WebGm.GetLeadingRoleModel（WelcomeTip 样板），Unit_ShowHeadTalk(text, 3)
+    /// （dump.cs:357769，interop 代理公开；During≈真实秒，实测定稿）。</summary>
+    internal static bool ShowHeadTalk(string text)
     {
         try
         {

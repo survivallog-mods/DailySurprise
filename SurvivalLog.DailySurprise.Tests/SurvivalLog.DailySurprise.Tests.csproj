@@ -19,6 +19,7 @@
     <Compile Include="../SurvivalLog.DailySurprise/Core/BuffBlueprints.cs" />
     <Compile Include="../SurvivalLog.DailySurprise/Core/InjectorMapping.cs" />
     <Compile Include="../SurvivalLog.DailySurprise/Core/StateStore.cs" />
+    <Compile Include="../SurvivalLog.DailySurprise/Core/RewardMath.cs" />
     <!-- DailyFlow 纯函数半边（partial 类的纯侧）：il2cpp 接线半边在主工程 DailyFlow.Runtime.cs，不链接 -->
     <Compile Include="../SurvivalLog.DailySurprise/Game/Trigger/DailyFlow.cs" />
   </ItemGroup>

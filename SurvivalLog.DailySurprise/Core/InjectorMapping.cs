@@ -111,7 +111,8 @@ public static class InjectorMapping
             ["ConditionSetId"] = 0,                 // 刻意清零门控（Task 2 定案：强制路径只添噪声）
             ["NeedConditionSetId"] = 0,
             ["TaskConditionSetId"] = 0,
-            ["StartRewardSetId"] = BaseRewardSetIdOf(e), // 直发观察点（Task 2 spike 同款无条件设置）
+            ["StartRewardSetId"] = 0,               // Task 8 Controller 裁定（防空双发）：原生 1760 行同为 0，
+                                                    // 弹窗不受影响；奖励统一走 RewardExecutor 代码路径
             ["RewardSetId"] = 0,                    // 刻意置 0：与 StartRewardSet 区分归因（Task 2 定案）
             ["ExpiredRewardSetId"] = 0,
             ["SMSContactId"] = 0,

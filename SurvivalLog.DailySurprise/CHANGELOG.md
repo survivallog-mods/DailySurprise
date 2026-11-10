@@ -18,3 +18,10 @@
   `Config_Effect` 14 行（99290~99303 独立编号）；映射纯函数 `InjectorMapping`（可单测，21 例）；
   cfg `DebugSpikeChose` 移除（选项行形态改由事件目录 Choices 驱动）；`trace\inject.txt` 报实际
   四表行数；ticker 重复异常 trace 节流（每 50 次一记）。
+- 奖励发放（Task 8）：`RewardMath` 纯函数（数量四舍五入下限 1 / 拒收挂账 / 命运眷顾与行运低潮
+  变体映射 / 随机×1，40 例测试）+ `RewardExecutor` 代码路径发放（物品按难度倍率缩放入包、
+  可腐品满保鲜 Life×24h；buff 经 `BuffComponent.AddBuff`；属性经 `AddConditionValue` 可负；
+  Op 系留 Task 9）+ 进档补发链 `PendingFlusher`（先于每日触发；入队存已缩放 spec、补发不二次
+  缩放；补完主角气泡「昨天塞不下的东西送到了」）。**Controller 裁定**：事件行
+  `StartRewardSetId` 改 0（防空双发），全部奖励统一代码路径，RewardSet 行保留备查；
+  `DebugForceEventId` 强制直发事件时同链路即时发放（`trace\grants.txt`）。

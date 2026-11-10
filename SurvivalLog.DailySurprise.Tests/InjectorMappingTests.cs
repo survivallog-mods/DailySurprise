@@ -41,8 +41,9 @@ public sealed class InjectorMappingTests
         Assert.Equal("天上掉下来一个箱子，降落伞没打开，但箱子的质量出乎意料。", row["EventDes"]);
         Assert.Equal("天上掉下来一个箱子，降落伞没打开，但箱子的质量出乎意料。", row["EventDes_Local"]);
 
-        // StartRewardSetId=99250+目录序（G1 是第 6 个事件，目录序 5）→ 99255；RewardSetId 刻意 0（归因单一）
-        Assert.Equal(99255, row["StartRewardSetId"]);
+        // StartRewardSetId=0（Task 8 Controller 裁定：防空双发——原生 1760 行同为 0，弹窗不受影响；
+        // 全部奖励统一走 RewardExecutor 代码路径）；RewardSetId 亦 0（Task 2 起归因单一）
+        Assert.Equal(0, row["StartRewardSetId"]);
         Assert.Equal(0, row["RewardSetId"]);
 
         // Icon=EventDef.Icon 相对路径（Task 11 配图生产线的落盘约定）
@@ -71,8 +72,8 @@ public sealed class InjectorMappingTests
         // ChoseID 空列表：子事件接线归 Task 10（数据层 Choices 就绪即可，EventCatalog H3 注同款口径）
         Assert.Empty(Assert.IsType<List<int>>(row["ChoseID"]));
         Assert.Equal(0, row["Default"]);
-        // 顶层不发奖励（各选项自带），但 StartRewardSetId 照指基础行（Task 2 spike 同款无条件设置）
-        Assert.Equal(99274, row["StartRewardSetId"]);
+        // 顶层不发奖励（各选项自带）；StartRewardSetId=0（Task 8 裁定：防原生直发双发，奖励全走代码路径）
+        Assert.Equal(0, row["StartRewardSetId"]);
     }
 
     [Fact]
@@ -123,11 +124,25 @@ public sealed class InjectorMappingTests
     [Fact]
     public void EventRow_BaseRewardSetIdWalksCatalogOrder()
     {
-        // 目录序（0 起）：N1=99250 … D3=99294
+        // 目录序（0 起）：N1=99250 … D3=99294（编号保留供 RewardSet 行 Id 与备查；事件行不再引用）
         Assert.Equal(99250, InjectorMapping.BaseRewardSetIdOf(ById(EventCatalog.Ids.N1)));
         Assert.Equal(99274, InjectorMapping.BaseRewardSetIdOf(ById(EventCatalog.Ids.L1)));
         Assert.Equal(99290, InjectorMapping.BaseRewardSetIdOf(ById(EventCatalog.Ids.H3)));
         Assert.Equal(99294, InjectorMapping.BaseRewardSetIdOf(ById(EventCatalog.Ids.D3)));
+    }
+
+    /// <summary>Task 8 Controller 裁定钉：全部 45 事件行 StartRewardSetId=0——奖励统一走
+    /// RewardExecutor 代码路径（防原生直发与代码路径双发）；RewardSet 行本身保留（展示/备查）。</summary>
+    [Fact]
+    public void EventRow_AllStartRewardSetIdsZero_CodePathOnly()
+    {
+        foreach (var e in EventCatalog.Events)
+        {
+            var row = InjectorMapping.EventRow(e);
+            Assert.Equal(0, row["StartRewardSetId"]);
+            Assert.Equal(0, row["RewardSetId"]);
+            Assert.Equal(0, row["ExpiredRewardSetId"]);
+        }
     }
 
     // ———————————————— RewardSetRow：编码口径 ————————————————

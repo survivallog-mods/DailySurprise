@@ -147,8 +147,9 @@ internal static class EligibilityChecker
     }
 
     /// <summary>主角背包 ownerId：Redux dataTree[State_Data_Player].PlayerId
-    /// （CabinetEverywhere 校准点 T14：PlayerId=背包 owner；读不到=0 → 无资格）。</summary>
-    private static long PlayerBagOwnerId()
+    /// （CabinetEverywhere 校准点 T14：PlayerId=背包 owner；读不到=0 → 无资格）。
+    /// Task 8 起 RewardExecutor 发物品同源复用（资格计数与发放同一 owner 口径）。</summary>
+    internal static long PlayerBagOwnerId()
     {
         try
         {

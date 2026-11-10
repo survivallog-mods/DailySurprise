@@ -121,9 +121,10 @@ internal static class TableInjector
     private static readonly EventDef ProbeL1 = FindEvent(EventCatalog.Ids.L1);
     private static readonly Dictionary<string, object> ProbeG1EventRow = InjectorMapping.EventRow(ProbeG1);
     private static readonly int ProbeG1Type = (int)ProbeG1EventRow["Type"];
-    private static readonly int ProbeG1StartRs = (int)ProbeG1EventRow["StartRewardSetId"];   // =BaseRewardSetIdOf(G1)
+    private static readonly int ProbeG1StartRs = (int)ProbeG1EventRow["StartRewardSetId"];   // =0（Task 8 裁定：奖励走代码路径）
+    private static readonly int ProbeG1RsId = InjectorMapping.BaseRewardSetIdOf(ProbeG1);    // =99255（RewardSet 行编号不受裁定影响）
     private static readonly Dictionary<string, object> ProbeG1RsRow =
-        InjectorMapping.RewardSetRow(ProbeG1.Reward, ProbeG1StartRs);
+        InjectorMapping.RewardSetRow(ProbeG1.Reward, ProbeG1RsId);
     private static readonly string ProbeG1RsSource = (string)ProbeG1RsRow["Source"];
     private static readonly int ProbeG1RsItemCount = ((List<int>)ProbeG1RsRow["ItemChange"]).Count;
     private static readonly int ProbeL1Type = (int)InjectorMapping.EventRow(ProbeL1)["Type"];
@@ -157,7 +158,7 @@ internal static class TableInjector
             if (l1.Type != ProbeL1Type || l1.ChoseName_Local == null
                 || l1.ChoseName_Local.Count != ProbeL1ChoseCount) return false;
 
-            var rsG1 = rsDict[ProbeG1StartRs];
+            var rsG1 = rsDict[ProbeG1RsId];
             if (rsG1.Source != ProbeG1RsSource || rsG1.ItemChange == null
                 || rsG1.ItemChange.Count != ProbeG1RsItemCount) return false;
 

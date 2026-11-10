@@ -73,6 +73,8 @@ internal sealed class DsTicker : MonoBehaviour
         _acc = 0;
         try { SpikeForce.OnStep(); }
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "SpikeForce: " + e.Message); }
+        try { PendingFlusher.Step(); }   // 进档补发挂账奖励（Task 8；先于每日触发——DayWatcher 在后）
+        catch (Exception e) { DsTrace.WriteThrottled("ticker", "PendingFlusher: " + e.Message); }
         try { DayWatcher.Step(); }   // 兜底日翻检测（SaveMgr 模式；OnNewDay 同日幂等防双触发）
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "DayWatcher: " + e.Message); }
     }
@@ -114,8 +116,37 @@ internal static class SpikeForce
             + "（" + DescribeEvent(id)
             + "，在册 event/rewardSet/buff/effect=" + report.Events + "/" + report.RewardSets
             + "/" + report.BuffRows + "/" + report.EffectRows
-            + "。预期：直发事件弹卡、关窗后自动发放（StartRewardSet）；选项事件（L1=99224/H3=99240）弹选项卡——选项接线 Task 10 落地前点选不生效）");
+            + "。预期：直发事件弹卡（展示归原生）+ 代码路径即时发放（见 trace\\grants.txt）；"
+            + "选项事件（L1=99224/H3=99240）弹选项卡——选项接线 Task 10 落地前点选不生效）");
         DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + ok);
+        if (ok) ForceGrant(id);   // 调试链自带发放（StartRewardSetId=0 无原生直发，不存在双发）
+    }
+
+    /// <summary>调试强制的同款代码路径发放（Task 8 实机清单用：强制 G1 核对背包数量/塞满背包强制 G5
+    /// 验证挂账→次日补发）。走正式 Grant（按当前 cfg 难度缩放）+ 挂账入当前档 StateStore，
+    /// 与 DailyFlow.OnNewDay 的发放链路完全同源——自然触发与强制互不复用随机源，各发各的。</summary>
+    private static void ForceGrant(int id)
+    {
+        try
+        {
+            var def = DailyFlow.FindEvent(id);
+            if (def == null || def.Reward is { Choices.Count: > 0 }) return;   // 选项事件归 Task 10
+            var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
+            var res = RewardExecutor.Grant(def.Reward, p, new System.Random(), "force event=" + id);
+            if (res.Queued.Count > 0)
+            {
+                var slotDir = DailyFlow.SlotDir();
+                if (slotDir != null)
+                {
+                    var st = StateStore.Load(slotDir, out _);
+                    st.PendingRewards.AddRange(res.Queued);
+                    StateStore.Save(st, slotDir);
+                }
+                DsTrace.Write("force", "强制发放：拒收入队 " + res.Queued.Count + " 条"
+                    + (slotDir == null ? "（存档名不可达未持久化！）" : "（已入 state.json，次日进档补发）"));
+            }
+        }
+        catch (Exception e) { DsTrace.WriteThrottled("force", "ForceGrant: " + e.Message); }
     }
 
     /// <summary>事件行描述（目录命中=Key+标题+样式；未命中=原样 id——目录外 id 也允许强制，

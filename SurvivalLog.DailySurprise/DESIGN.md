@@ -122,3 +122,32 @@
 - cfg 面落地（DsConfig）：`Difficulty/CustomGoodPercent/CustomPlainPercent/CustomBadPercent/
   CustomRewardMultiplier/CustomLossMultiplier/ShowPlainPopup/AllowPermanentNegative/DebugForceEventId`，
   读取实时取值=热更；非法值由 DifficultyTable 回退档 3（T3 已测）。
+
+### Task 8：RewardExecutor——代码路径发放与倍率（2026-11-10）
+
+- 状态：代码侧门通过（`dotnet.exe build` Debug/Release 退出码 0 零警告；`dotnet.exe test` 164/164
+  通过，新增 RewardScaleTests 40 例）。实机验证清单（见 task-8-report.md）移交作者执行，**结论待回填**。
+
+#### 8.0 Controller 裁定与查证记录（静态核对，gamekb 2026-11-05_26454866）
+
+- **Controller 裁定（防空双发，binding）**：事件行 `StartRewardSetId` 改 **0**（原生 1760 行同为 0，
+  弹窗不受影响），**全部奖励统一走代码路径**（RewardExecutor）；RewardSet 行保留（展示/备查）。
+  spike A（作者实机）结论：若将来切声明式（原生 `RewardSetManager.ExecuteRewardSet`，dump.cs:431723，
+  带 itemRate/attrRate 倍率参数）再单独评估。
+- **物品发放**：`ItemManager.TryAddItemToBag(ownerId, cfgId, count, startTime, timeLeft, …18 参)`
+  （dump.cs:425146）；owner=Redux `State_Data_Player.PlayerId`（CabinetEverywhere 校准点 T14；
+  与资格计数同源复用）。保质期：`TimeLeft/StartTime` 单位=游戏小时（CabinetEverywhere RailSortMath
+  DaysLeftOf 定案：剩余=timeLeft+startTime−now）；`Config_Item.Life` 单位=天（游戏日志串
+  「真实剩余 {0:F0}h → {1}h（Life={2} 天…」佐证）→ 满保鲜 `timeLeft=Life×24`、
+  `startTime=RobotSortingManager.GetNowHours(world)`（dump.cs:432669）；不可腐（Life≤0）0/0
+  （StackLimit999 补偿在役同款）。GM 先例：`WebGm.PsGrantItem`（dump.cs:99547）自带 freshDecay
+  参数——游戏发放不自动补默认保鲜，调用方算定。
+- **buff 施加**：`BuffComponent.AddBuff(long releaserId, int configId)`（dump.cs:372269）；
+  主角=`AgentManager.GetLeadingRole()`（dump.cs:379458）+ `AgentTools.GetAgentComponent<T>`
+  （dump.cs:379706）；releaserId=主角 InstanceId（自发）。
+- **属性增减**：`AttributeComponent.AddConditionValue(AttrName, int)`（dump.cs:371548）——一次性
+  五维增减、负值即扣；AttrName 1..5=Satiety/Morale/Stamina/Health/Vitality（dump.cs:57466）。
+  N4 精力−2 为实机核对项（不生效则换路径并记本文件）。
+- **挂账定案（2026-11-10）**：入队存**已缩放 spec**（Items 已 ×倍率），补发（进档
+  `PendingFlusher`，先于每日触发）按 RewardMult=1.0 原样发、不二次缩放；补发成功出队、仍拒收保留；
+  全部补完主角气泡「昨天塞不下的东西送到了」。
