@@ -1,7 +1,7 @@
 # 喜从天降 DailySurprise — 设计记录
 
-> 暂为占位（Task 1 起）。机制与数值权威 = spec：`../../docs/superpowers/specs/2026-11-10-daily-surprise-design.md`（已冻结，计划以 spec 为准）。
-> 本文件累积各任务实证结论（首验 spike、实机核对、冒烟频率）；Task 13 终稿 = spec 摘要 + 全部首验/冒烟结论。
+> 机制与数值权威 = spec：`../../docs/superpowers/specs/2026-11-10-daily-surprise-design.md`（已冻结；§8.8 H3 行有 2026-11-12 Controller 修订注记）。
+> 本文件累积各任务实证结论（Task 1~11 代码任务已回填；Task 12 作者实机冒烟与 §2.1/§2.2/§2.3 待回填）。
 > 版本：跟随本仓 csproj `<Version>`（占位 0.1.0；发版号由作者定，见 Task 13）。
 
 ## 首验记录区（各任务回填）
@@ -152,6 +152,30 @@
   `PendingFlusher`，先于每日触发）按 RewardMult=1.0 原样发、不二次缩放；补发成功出队、仍拒收保留；
   全部补完主角气泡「昨天塞不下的东西送到了」。
 
+### Task 9：惩罚执行器——耐久/永久属性/腐坏/偷窃（2026-11-10）
+
+- 状态：代码侧门通过（`dotnet.exe build` Debug/Release 退出码 0 零警告；`dotnet.exe test`
+  **199/199**，新增 PunishmentMathTests 33 例）。实机验证清单（DebugForceEventId 逐事件强制）
+  见 task-9-report.md，**结论待回填**。
+
+#### 9.0 形态与关键取证（静态核对，gamekb 2026-11-05_26454866）
+
+- 形态：`Core/RewardMath` 纯函数增量（`ScaleLoss` 0.1 步长 AwayFromZero、`PlanPermAttrLoss`
+  开关分流、`PermAttrPool={101..105}`）+ `Game/Exec/PunishmentOps` 六操作单文件（耐久×3 /
+  永久属性 / 腐坏替换 / 偷零件），入口 `Apply` **永不抛出**（异常兜"落空：执行异常"），每次
+  调用写 `trace\punish.txt` 一行汇总；逐台/逐件 try/catch 不连坐。
+- **耐久只扣不毁**：`FurnitureDurabilityComponent.SetCurrentDurability(int)` public（dump.cs
+  :374101）直改，下限 1；弃 `TakeDamage`（deathCauseKey 毁损通知/崩溃支线副作用）。
+- **永久属性=强化层**：`AttributeComponent.AddStrengtheningValue(AttrName, int)` public
+  （dump.cs:371515，负值即永久扣）；`SetBaseValue_Int/Float` 均 private 不可用；五维上限系
+  101~105（:57466）。实现 IComponentSave=存档随行。**负值行为为签名级取证**——若游戏内部
+  钳位 ≥0 则 D1 静默不生效，实机观察点=强制 D1 后存读档属性不回落。
+- **CostItem 实例 Id 口径**（旁证定案：long 型+同族 API；configId 口径 API 均 int）——偷零件
+  扣后重读 `GetLeadingRoleItemCount` 复核实扣量（口径错也如实报落空，不虚报）。
+- 生鲜腐坏（M4）：候选=Life>0 且有腐坏产物且未腐坏，**Life 升序**取最多 2 件，CostItem 精准
+  扣 1 → TryAddItemToBag 1:1 补腐坏产物（入包失败如实标注，食物照腐）。
+- 行运低潮替补路径兜 DebugForceEventId 强制直达（自然链已由 LuckEngine 替补 D1→D2 兜住）。
+
 ### Task 10：选项事件接线——L1 三选一、H3 追/不追（2026-11-12）
 
 - 状态：代码侧门通过（`dotnet.exe build` Debug/Release 退出码 0 零警告；`dotnet.exe test`
@@ -171,13 +195,13 @@
   （itemId 重复=件数，原生行 68252 实证））；基础行仍代码路径口径（Task 8 裁定不变）。
   子事件台词自拟（EventCatalog.SonEvents，spec §8 风格一句结果文案）。
 
-#### 10.1 H3 追线 50/50 取舍（查证 + 用户裁定）
+#### 10.1 H3 追线 50/50 取舍（查证 + Controller 裁定）
 
 - **查证**：`Config_RandomGroup`（382 行）=物品池随机表——IdList=itemId 候选 + CountList=件数 +
   GroupType（331/382 为 1）；消费方 `RewardSetManager.ExecuteRandomGroupReward` 只把抽取结果并入
   `mergedRewardItems`（dump.cs:436552 附近方法族）。**表达不了「50% 发物品 vs 50% 加 buff」**——
   随机组只产物品，无效果分支语义。原生子事件也没有概率分叉先例（一选项=一子事件=一 RewardSet）。
-- **取舍**（Controller fallback + 用户裁定 2026-11-12）：追=固定「追回零件但擦伤」→ 99298 =
+- **取舍**（Controller fallback + Controller 裁定 2026-11-12）：追=固定「追回零件但擦伤」→ 99298 =
   AddBuff 1111（受伤流血）**不含 ItemChange**。净账：算了=−10 零件（ItemCost 声明式）；追=零件
   不变+流血。若按字面给 99298 发 ItemChange 20362×10：扣件只发生在「算了」分支 → 点追净 +10
   铁制零件，H3（重度霉运、可重复）变成比 R1（稀有好运 +12）还赚的零件来源——spec §8.8 平衡
@@ -203,3 +227,27 @@
   OnChoiceSelected(int eventId, int nextEventId)`（dump.cs:419735 类内，方法签名已取证）——
   按 nextEventId 查子事件→对应 Choice.Reward 走 RewardExecutor 代码路径发奖（含 ItemCost 扣件
   与 AddBuff），子事件行 RewardSetId 置 0 防双发。**本任务不做该实现**（Controller 裁定）。
+
+### Task 11：图片落盘通道与美术生产三件套（2026-11-10，规格 v2 2026-11-12）
+
+- 状态：代码侧门通过（`dotnet.exe build` Debug/Release 退出码 0 零警告；`dotnet.exe test`
+  **206/206**，新增 IconNamingTests 7 例；IconDrop 离线冒烟 10/10 PASS）。实机链路验证
+  （事件卡 UI 是否解析相对路径）见 §2.3 与 task-11-report.md，**结论待回填**。
+
+#### 11.0 形态
+
+- **`Core/IconNaming`（命名契约唯一真相源）**：命名链四段一致——事件 Key（g1）↔ 裸文件名
+  （`ds_g1.webp`，EventDef.Icon）↔ 表 Icon 字段（`../../Res/Icon/ds_g1.webp`，InjectorMapping
+  .IconPrefix 合成）↔ 内嵌资源名（`SurvivalLog.DailySurprise.Art.ds_g1.webp`，RootNamespace+
+  Art\ 路径）。`ExpectedResourceNames`（45 期望集）/`IconIssues`（形态/Key 一致性）/`Stray…`
+  （越集=错）/`MissingResources`（缺集=预期态只报告，**发版闸门判空**——release.ps1 已按
+  "45 个预期文件名逐一存在"落地对账）。
+- **`Game/Art/IconDrop`（落盘通道）**：插件 Load 调 `Install()`——扫 EmbeddedResource 逐张写
+  `<游戏根>\SurvivalLog_Data\StreamingAssets\WebUI\Res\Icon\`；字节数+SHA256 全等跳过（幂等）、
+  不一致 tmp+Move 原子覆盖（换图热更）；Res 目录契约不成立绝不乱建目录；trace\icons.txt
+  每资源一行+汇总行。
+- **规格 v2（2026-11-12，binding）**：4:3 横版 **1536×1152 WebP（q90）**，对齐官方原生事件图
+  （实证 2400×1792 4:3 横版 WebP、日式动画背景美术）；`ds_<key>.webp` 命名。csproj
+  `<EmbeddedResource Include="Art\*.webp" />`。
+- 美术三件套（`art-spec/`：prompt-template / prompts-all45 / acceptance-checklist）归作者
+  出图流程；45 张正式图齐备=v1 发版硬闸门（release.ps1 构建前校验）。
