@@ -257,7 +257,7 @@ public static class EventCatalog
         Rarity = rarity,
         Title = title,
         Dialogue = dialogue,
-        Icon = "ds_" + KeyOf(id) + ".png",   // spec §8 配图命名（Task 11 IconDrop 落盘通道）
+        Icon = "ds_" + KeyOf(id) + ".webp",   // spec §8 配图命名 v2（4:3 横版 WebP，Task 11 IconDrop 落盘通道）
         Reward = reward ?? Rs(),
         Elig = elig,
         Weight = weight,

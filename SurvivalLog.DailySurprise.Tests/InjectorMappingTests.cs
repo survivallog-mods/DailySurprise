@@ -46,9 +46,9 @@ public sealed class InjectorMappingTests
         Assert.Equal(0, row["StartRewardSetId"]);
         Assert.Equal(0, row["RewardSetId"]);
 
-        // Icon=EventDef.Icon 相对路径（Task 11 配图生产线的落盘约定）
-        Assert.Equal("../../Res/Icon/ds_g1.png", row["Icon"]);
-        Assert.Equal("../../Res/Icon/ds_g1.png", row["IconEnd"]);
+        // Icon=EventDef.Icon 相对路径（Task 11 配图生产线的落盘约定，规格 v2 webp）
+        Assert.Equal("../../Res/Icon/ds_g1.webp", row["Icon"]);
+        Assert.Equal("../../Res/Icon/ds_g1.webp", row["IconEnd"]);
 
         Assert.Equal("我知道了", row["OKDes_Local"]);
     }

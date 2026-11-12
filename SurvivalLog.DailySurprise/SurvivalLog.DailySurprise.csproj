@@ -17,8 +17,9 @@
   <ItemGroup>
     <Compile Include="../ModShared/BagTableRw.cs" />
     <Compile Include="../ModShared/WelcomeTip.cs" />
-    <!-- Art/** 预留：Task 11 图片生产线（ds_*.png），目录未建时 glob 匹配空集不报错 -->
-    <EmbeddedResource Include="Art/**" />
+    <!-- Art\*.webp：Task 11 图片生产线 v2（4:3 横版 1536×1152 WebP，对齐官方原生事件图）；
+         目录未建时 glob 匹配空集不报错 -->
+    <EmbeddedResource Include="Art\*.webp" />
   </ItemGroup>
 
   <ItemGroup>

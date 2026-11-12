@@ -27,6 +27,7 @@ public sealed class DailySurprisePlugin : BasePlugin
 
         // 自证文件 trace\_DONE.txt（内容=GUID+时间戳，硬规则9：不依赖 LogOutput.log）
         DsTrace.Write("_DONE", Ds.Guid);
+        IconDrop.Install();   // Task 11：内嵌配图（Art/**）落盘 WebUI\Res\Icon\（幂等；先于任何表注入，结果见 trace\icons.txt）
         Log.LogInfo("[DailySurprise] " + Ds.Name + " v" + Ds.Version + " loaded（Task 7：每日触发链）");
 
         // 逐类隔离挂载 Harmony 补丁（SaveMgr 定案模式：PatchAll 整包挂载时单个 IL 错炸整个 Load）
