@@ -118,8 +118,8 @@ internal static class SpikeForce
             + "，在册 event/rewardSet/buff/effect=" + report.Events + "/" + report.RewardSets
             + "/" + report.BuffRows + "/" + report.EffectRows
             + "。预期：直发事件弹卡（展示归原生）+ 代码路径即时发放（见 trace\\grants.txt）；"
-            + "选项事件（L1=99224/H3=99240）弹选项卡——顶层 Op 即时执行（H3 偷零件见 trace\\punish.txt），"
-            + "选项接线 Task 10 落地前点选不生效）");
+            + "选项事件（L1=99224/H3=99240）弹选项卡——点选触发子事件（99245~99249）声明式发奖"
+            + "（Task 10 接线），顶层不代码发放（H3 零件损失在「算了」子事件 ItemCost））");
         DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + ok);
         if (ok) ForceGrant(id);   // 调试链自带发放（StartRewardSetId=0 无原生直发，不存在双发）
     }
@@ -127,8 +127,8 @@ internal static class SpikeForce
     /// <summary>调试强制的同款代码路径发放（Task 8 实机清单用：强制 G1 核对背包数量/塞满背包强制 G5
     /// 验证挂账→次日补发）。走正式 Grant（按当前 cfg 难度缩放）+ 挂账入当前档 StateStore，
     /// 与 DailyFlow.OnNewDay 的发放链路完全同源——自然触发与强制互不复用随机源，各发各的。
-    /// 选项事件（L1/H3）顶层载荷仍走代码路径（Task 9 起：H3 的 StealParts=触发时已被偷走，spec §8.8）；
-    /// 选项按钮的接线归 Task 10——强制时点选不生效。</summary>
+    /// 选项事件（L1/H3，Task 10）全程声明式：父行 ChoseID→子事件行→RewardSetId 原生发奖，
+    /// 调试链路不再代码发放（与 RewardExecutor.RunsTopLevelOp 短路同语义，防顶层 Op 双发）。</summary>
     private static void ForceGrant(int id)
     {
         try
@@ -136,12 +136,7 @@ internal static class SpikeForce
             var def = DailyFlow.FindEvent(id);
             if (def == null) return;
             var spec = def.Reward;
-            if (spec is { Choices.Count: > 0 })
-            {
-                // 选项事件：只保留顶层 Op（H3 偷窃在触发时点生效）；L1 顶层无载荷=无事可做
-                if (spec.Op == SpecialOp.None) return;
-                spec = new RewardSpec { Op = spec.Op, OpParam = spec.OpParam };
-            }
+            if (spec is { Choices.Count: > 0 }) return;   // 选项事件：点选结算归原生子事件链，无代码发放
             var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
             var res = RewardExecutor.Grant(spec, p, new System.Random(), "force event=" + id);
             if (res.Queued.Count > 0)

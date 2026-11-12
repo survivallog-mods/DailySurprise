@@ -42,7 +42,7 @@ internal static class DsConfig
         AllowPermanentNegative = config.Bind("General", "AllowPermanentNegative", true,
             "永久负面事件（H1 心结/D1 代价/D3 低语）开关：false=全部走替补（H4 重病/D2 雷击/H2 管道爆裂）。");
         DebugForceEventId = config.Bind("General", "DebugForceEventId", 0,
-            "首验调试：>0=进档且表就绪后对注入事件行强制触发一次（事件行 ID 99200~99244，如 99205=G1；99250 是 RewardSet ID 无效）。0=关闭。每进档一次只触发一次，结果写 BepInEx\\plugins-data\\DailySurprise\\trace\\force.txt。");
+            "首验调试：>0=进档且表就绪后对注入事件行强制触发一次（事件行 ID 99200~99244，如 99205=G1；99250 是 RewardSet ID 无效）。0=关闭。每进档一次只触发一次，结果写 BepInEx\\plugins-data\\DailySurprise\\trace\\force.txt。选项事件可直接强制父事件 Id（如 99224=L1 三选一、99240=H3 追/算了），点选项走子事件声明式发奖。");
     }
 
     // —— 取值面（实时读 .Value；Init 前调用=默认值兜底，不抛） ——

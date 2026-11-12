@@ -16,7 +16,8 @@ internal sealed class GrantResult
 /// <summary>奖励执行器（Task 8；Controller 裁定：事件行 StartRewardSetId=0，全部奖励统一代码路径）。
 /// 消费 RewardSpec 全形状（Items/Buffs/Attrs/PermBuffByTier/RandomPickOne）；Op 系（耐久/腐坏/偷窃/
 /// 永久属性）Task 9 起分流到 <see cref="PunishmentOps.Apply"/>（Summary 进 grants 行 + punish.txt）；
-/// Choices 留给 Task 10 选项接线。
+/// Task 10 起选项事件（Choices 非空）顶层 Op 短路（RunsTopLevelOp）——选项效果由子事件
+/// RewardSetId 声明式发奖（L1 三选一物品、H3 追=AddBuff 1111/算了=ItemCost 20362×10）。
 /// 发放通道取证（gamekb 2026-11-05_26454866 dump.cs）：
 /// - 物品=ItemManager.TryAddItemToBag(long ownerId,int cfgId,int count,int startTime,int timeLeft,
 ///   int useTimes=0,float timeScale=1,Func&lt;int,int,int,int,bool&gt; onFailed,int maxUseTimes=0,
@@ -58,10 +59,13 @@ internal static class RewardExecutor
         try { acted |= GrantAttrs(spec, sb); }
         catch (Exception e) { DsTrace.WriteThrottled("grants", "Grant.Attrs " + e.Message); }
 
-        if (spec.Op != SpecialOp.None)
+        if (spec.RunsTopLevelOp)
         {
             // Task 9 分流：Op 系（耐久/永久属性/腐坏/偷窃）归 PunishmentOps（Apply 全隔离不抛出，
-            // Summary 进本行 + 一行汇总另写 trace\punish.txt）
+            // Summary 进本行 + 一行汇总另写 trace\punish.txt）。
+            // Task 10 防双发：RunsTopLevelOp=Choices 非空即短路——选项事件顶层效果由子事件
+            // RewardSetId 声明式结算（H3 的 StealParts 体现在「算了」选项 ItemCost 20362×10），
+            // 代码侧（自然链路+调试链路）不再执行顶层 Op
             sb.Append(" op=").Append(spec.Op).Append('[')
                 .Append(PunishmentOps.Apply(spec.Op, spec.OpParam, p.LossMult, rand)).Append(']');
             acted = true;

@@ -25,3 +25,9 @@
   缩放；补完主角气泡「昨天塞不下的东西送到了」）。**Controller 裁定**：事件行
   `StartRewardSetId` 改 0（防空双发），全部奖励统一代码路径，RewardSet 行保留备查；
   `DebugForceEventId` 强制直发事件时同链路即时发放（`trace\grants.txt`）。
+- 选项事件接线（Task 10）：L1「神秘补给箱」/H3「贼影」接入原生选项链——父行 ChoseID/Default 指向
+  5 个子事件行（99245~99249，形态抄原生 10010 父+10011/104 子），子事件 RewardSetId→选项
+  RewardSet 行（99295~99299）声明式发奖（物品/加 buff/扣件三通道）；H3 顶层偷窃 Op 短路
+  （RunsTopLevelOp）——零件损失改在「算了」子事件声明式扣（追=受伤流血但零件不变，防刷件）；
+  强制调试链路同语义。50/50 不可声明式（RandomGroup 仅物品池随机），取舍与降级预案见
+  DESIGN.md §10；实机验证并入冒烟（Task 12）。

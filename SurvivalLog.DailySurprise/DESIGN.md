@@ -151,3 +151,55 @@
 - **挂账定案（2026-11-10）**：入队存**已缩放 spec**（Items 已 ×倍率），补发（进档
   `PendingFlusher`，先于每日触发）按 RewardMult=1.0 原样发、不二次缩放；补发成功出队、仍拒收保留；
   全部补完主角气泡「昨天塞不下的东西送到了」。
+
+### Task 10：选项事件接线——L1 三选一、H3 追/不追（2026-11-12）
+
+- 状态：代码侧门通过（`dotnet.exe build` Debug/Release 退出码 0 零警告；`dotnet.exe test`
+  **211/211**，新增 5 例 + 改写 3 例）。实机验证并入 Task 12 冒烟（强制 L1/H3 点选项），清单见
+  task-10-report.md。
+
+#### 10.0 接线形态（原生机制，Controller 裁定 binding）
+
+- **形态=原生 10010 父 + 10011/10012 子**（gamekb 2026-11-12_26615066 快照取证，行号同构于
+  2026-11-05 版）：父行 Type=1/PopUpType=3(103 样式)/ChoseName_Local=选项名/ChoseID=子事件 Id
+  列表/Default=末选项子事件/Countdown=60（倒计时归零走 Default）；子事件行 Type=2/PopUpType=1/
+  IsSon=true/DemoTwoMode 随父(=3)/DayCD=0/CanRepeat=false（原生 104 形态）/RewardSetId=选项
+  RewardSet 行 → 原生 RewardSetManager 声明式发奖。父行 RewardSetId=0（原生 10010 同款，父级不发）。
+- **注入面**：Config_Event 45→50 行（子事件 99245~99249：L1 食物/药品/材料层 + H3 追/算了；
+  事件段 99200~99244 已满顺延）；选项 RewardSet 行 99295~99299 改**声明式**（Items→ItemChange、
+  Buffs→AddBuff+BuffTargetType/BuffTargetID=1/0（原生行 6014/6106 配对实证）、ItemCosts→ItemCost
+  （itemId 重复=件数，原生行 68252 实证））；基础行仍代码路径口径（Task 8 裁定不变）。
+  子事件台词自拟（EventCatalog.SonEvents，spec §8 风格一句结果文案）。
+
+#### 10.1 H3 追线 50/50 取舍（查证 + 用户裁定）
+
+- **查证**：`Config_RandomGroup`（382 行）=物品池随机表——IdList=itemId 候选 + CountList=件数 +
+  GroupType（331/382 为 1）；消费方 `RewardSetManager.ExecuteRandomGroupReward` 只把抽取结果并入
+  `mergedRewardItems`（dump.cs:436552 附近方法族）。**表达不了「50% 发物品 vs 50% 加 buff」**——
+  随机组只产物品，无效果分支语义。原生子事件也没有概率分叉先例（一选项=一子事件=一 RewardSet）。
+- **取舍**（Controller fallback + 用户裁定 2026-11-12）：追=固定「追回零件但擦伤」→ 99298 =
+  AddBuff 1111（受伤流血）**不含 ItemChange**。净账：算了=−10 零件（ItemCost 声明式）；追=零件
+  不变+流血。若按字面给 99298 发 ItemChange 20362×10：扣件只发生在「算了」分支 → 点追净 +10
+  铁制零件，H3（重度霉运、可重复）变成比 R1（稀有好运 +12）还赚的零件来源——spec §8.8 平衡
+  反转，已否决。原设想的「50% 追回/50% 受伤流血」退化无损失语义：追回=零件本就未失。
+- **`PunishmentOps.StealParts` 现状**：H3 是唯一引用方且已被短路——该 Op 分支在当前数据下
+  不可达（保留 PunishmentOps 分发器不动，防数据层未来复用）。
+
+#### 10.2 H3 双发防线
+
+- **顶层 Op 短路**：`RewardSpec.RunsTopLevelOp`（Core 纯函数，Choices 非空即 false）——
+  RewardExecutor.Grant 消费它跳过顶层 Op；SpikeForce.ForceGrant（调试链路）对选项事件直接
+  return，同语义。即自然链路与 DebugForceEventId 链路都**不再**在触发时点偷零件。
+- **结算归属**：零件去留在子事件声明式——点「算了」(99299) → RewardSet 99299 ItemCost 20362×10；
+  点「追」(99248) → RewardSet 99298 AddBuff 1111；倒计时归零 → Default=99249（算了）。
+  父行 RewardSetId=0 + StartRewardSetId=0（Task 8 裁定不变）→ 父级无原生直发。
+- **边界语义**（声明式的固有取舍）：若事件卡未走到结算（极端：UI 队列丢弃），零件不扣——
+  损失以「点到算了/超时」为准，不再触发即扣。
+
+#### 10.3 降级预案（若实机子事件不发奖）
+
+- T12 冒烟若发现：点选项有反应（子事件结果卡弹出）但 RewardSet 不生效（背包/buff 无变化）→
+  说明该路径 RewardSetId 未被执行。返工方案：Harmony postfix 挂 `DynamicEventManager.
+  OnChoiceSelected(int eventId, int nextEventId)`（dump.cs:419735 类内，方法签名已取证）——
+  按 nextEventId 查子事件→对应 Choice.Reward 走 RewardExecutor 代码路径发奖（含 ItemCost 扣件
+  与 AddBuff），子事件行 RewardSetId 置 0 防双发。**本任务不做该实现**（Controller 裁定）。

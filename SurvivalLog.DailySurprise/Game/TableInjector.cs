@@ -6,7 +6,8 @@ using SurvivalLog.ModShared;
 namespace SurvivalLog.DailySurprise;
 
 /// <summary>EnsureInjected 的结果：当前进程内本 mod 自注入行的在册行数（实际计数，非硬编码——
-/// green 返回时=全量：45 事件 / 50 RewardSet（45 基础+5 选项）/ 14 buff / 14 effect）。
+/// green 返回时=全量：50 事件行（45 事件 + 5 选项子事件）/ 50 RewardSet（45 基础+5 选项）/
+/// 14 buff / 14 effect）。
 /// null（EnsureInjected 返回 null）≠ 空报告：null=表未就绪/未全绿（调用方下轮再试）。</summary>
 internal sealed class InjectionReport
 {
@@ -18,7 +19,8 @@ internal sealed class InjectionReport
 
 /// <summary>四表全量注入器（Task 2 spike 形态的全量化，数据源=EventCatalog/BuffBlueprints，
 /// 行内容由 <see cref="InjectorMapping"/> 纯函数产出，本类只做"字典→对象属性"搬运与克隆拷贝）：
-/// Config_Event 45 行 + Config_RewardSet 50 行 + Config_Buff 14 行 + Config_Effect 14 行。
+/// Config_Event 50 行（45 事件 + 5 选项子事件，Task 10）+ Config_RewardSet 50 行 +
+/// Config_Buff 14 行 + Config_Effect 14 行。
 /// 时机/幂等/哨兵照抄 EndlessGuard ArrowTower 定案模式：
 /// - Cm() 单例就绪 ≠ dict 就绪（2026-10-24 实锤），任一字典 null=装表中，下轮再试；
 /// - 哨兵=全量行在册 + 每表关键行形态探针（官方 ConfigManager.Initialize 重建字典后哨兵转红，
@@ -37,8 +39,11 @@ internal static class TableInjector
 
     private static int[] BuildEventIds()
     {
-        var ids = new int[EventCatalog.Events.Count];
-        for (var i = 0; i < ids.Length; i++) ids[i] = EventCatalog.Events[i].Id;
+        // 45 父事件（99200~99244）+ 5 选项子事件（99245~99249，Task 10 接线）
+        var ids = new int[EventCatalog.Events.Count + EventCatalog.SonEvents.Count];
+        var n = 0;
+        for (var i = 0; i < EventCatalog.Events.Count; i++) ids[n++] = EventCatalog.Events[i].Id;
+        for (var i = 0; i < EventCatalog.SonEvents.Count; i++) ids[n++] = EventCatalog.SonEvents[i].Id;
         return ids;
     }
 
@@ -129,6 +134,19 @@ internal static class TableInjector
     private static readonly int ProbeG1RsItemCount = ((List<int>)ProbeG1RsRow["ItemChange"]).Count;
     private static readonly int ProbeL1Type = (int)InjectorMapping.EventRow(ProbeL1)["Type"];
     private static readonly int ProbeL1ChoseCount = ProbeL1.Reward.Choices.Count;
+    // 子事件行探针（Task 10）：L1 首子事件（99245 食物层）——IsSon/RewardSetId 声明式接线形态；
+    // 期望值派生自 InjectorMapping.SonEventRow（99245→选项行 99295 由 InjectorMappingTests 钉死）
+    private static readonly SonEvent ProbeSon = EventCatalog.SonEvents[0];
+    private static readonly Dictionary<string, object> ProbeSonRow = InjectorMapping.SonEventRow(ProbeSon);
+    private static readonly bool ProbeSonIsSon = (bool)ProbeSonRow["IsSon"];
+    private static readonly int ProbeSonType = (int)ProbeSonRow["Type"];
+    private static readonly int ProbeSonRsId = (int)ProbeSonRow["RewardSetId"];
+    // H3「算了」选项行探针（99299）：ItemCost=20362×10 声明式扣件（零件只在点"算了"时离开背包）
+    private static readonly EventDef ProbeH3 = FindEvent(EventCatalog.Ids.H3);
+    private static readonly (int Id, Dictionary<string, object> Row) ProbeH3GiveUpRow =
+        InjectorMapping.RewardSetsOf(ProbeH3)[2];   // [0]=基础行、[1]=追(99298)、[2]=算了(99299)——Choices 序
+    private static readonly int ProbeH3GiveUpCostCount =
+        ((List<int>)ProbeH3GiveUpRow.Row["ItemCost"]).Count;
     private static readonly int ProbeBuffId = BuffBlueprints.FirstBlueprintId;               // 99280
     private static readonly BuffBlueprint ProbeBuff = BuffBlueprints.All[0];
     private static readonly int ProbeBuffEffectId = InjectorMapping.EffectIdOf(ProbeBuff);
@@ -157,6 +175,12 @@ internal static class TableInjector
             var l1 = evDict[ProbeL1.Id];
             if (l1.Type != ProbeL1Type || l1.ChoseName_Local == null
                 || l1.ChoseName_Local.Count != ProbeL1ChoseCount) return false;
+
+            var son = evDict[ProbeSon.Id];   // Task 10：子事件行形态（IsSon/RewardSetId 声明式接线）
+            if (!son.IsSon || son.Type != ProbeSonType || son.RewardSetId != ProbeSonRsId) return false;
+
+            var rsGiveUp = rsDict[ProbeH3GiveUpRow.Id];   // 「算了」ItemCost 声明式扣件在册
+            if (rsGiveUp.ItemCost == null || rsGiveUp.ItemCost.Count != ProbeH3GiveUpCostCount) return false;
 
             var rsG1 = rsDict[ProbeG1RsId];
             if (rsG1.Source != ProbeG1RsSource || rsG1.ItemChange == null
@@ -197,6 +221,13 @@ internal static class TableInjector
                 var row = GetOrCreate(evDict, e.Id, out var created);
                 if (created) evNew++;
                 ApplyDict(row, InjectorMapping.EventRow(e));
+            }
+            // 选项子事件行（Task 10）：父行 ChoseID 指向它们，RewardSetId 声明式发奖
+            foreach (var s in EventCatalog.SonEvents)
+            {
+                var row = GetOrCreate(evDict, s.Id, out var created);
+                if (created) evNew++;
+                ApplyDict(row, InjectorMapping.SonEventRow(s));
             }
         }
         catch (Exception ex) { DsTrace.WriteThrottled("inject", "Config_Event 注入中断: " + ex.Message); }

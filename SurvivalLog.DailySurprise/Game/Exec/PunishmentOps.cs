@@ -317,6 +317,9 @@ internal static class PunishmentOps
     // ———————————————— H3 贼影：偷零件 ————————————————
 
     /// <summary>H3：扣铁制零件(20362) ScaleCount(round(opParam×lossMult))（基准 10；7.5→8 AwayFromZero）。
+    /// **当前无调用方，保留能力**（Task 10 Controller 裁定）：H3 是唯一引用方且已被选项声明式短路
+    /// （RewardSpec.RunsTopLevelOp=false，零件改在"算了"子事件 99299 声明式 ItemCost 扣）；
+    /// Op 枚举与本实现保留，防数据层未来复用（DESIGN.md §10.1）。
     /// 逐栈 CostItem（实例 Id 口径）——持有不足扣到 0 为止；CostItem 返回 void，**扣后重读主角持有数**
     /// （held−after）如实记 Summary（请求量与实扣量分开陈述）。</summary>
     private static string OpStealParts(double opParam, double lossMult)

@@ -19,6 +19,11 @@ public static class EventCatalog
     public const int FirstEventId = 99200;
     public const int LastEventId = 99244;
 
+    /// <summary>选项子事件 Id 段（Task 10）：事件段 99200~99244 已满，L1×3+H3×2 子事件顺延
+    /// 99245~99249（与 RewardSet 99250~99299 数值重叠不冲突——不同表）。</summary>
+    public const int FirstSonEventId = 99245;
+    public const int LastSonEventId = 99249;
+
     /// <summary>事件 Id 速查常量（cfg DebugForceEventId / 接线层 / 测试引用）。</summary>
     public static class Ids
     {
@@ -52,6 +57,20 @@ public static class EventCatalog
 
     /// <summary>45 事件（构造顺序即消费顺序，见类注）。</summary>
     public static readonly IReadOnlyList<EventDef> Events = Build();
+
+    /// <summary>5 个选项子事件（Task 10 接线；Id 段见 <see cref="FirstSonEventId"/>）。
+    /// 顺序契约=按父事件 Choices 同序排列（父行 ChoseID/Default 与子事件 RewardSetId→
+    /// 选项 RewardSet 行映射据此派生，InjectorMappingTests 钉死）。台词=结果卡一句文案
+    /// （spec §8 风格自拟）；奖励不在此声明——子事件行 RewardSetId 指向父事件对应
+    /// Choice.Reward 的选项 RewardSet 行（99295~99299），由原生声明式发奖。</summary>
+    public static readonly IReadOnlyList<SonEvent> SonEvents = new List<SonEvent>
+    {
+        new() { Id = 99245, ParentId = Ids.L1, Line = "你搬走了最沉的一层——能吃最久的那层。" },
+        new() { Id = 99246, ParentId = Ids.L1, Line = "纱布、药剂、吗啡。这一层最安静，也最救命。" },
+        new() { Id = 99247, ParentId = Ids.L1, Line = "金属碰撞出踏实的声音。往后的日子靠它们钉牢。" },
+        new() { Id = 99248, ParentId = Ids.H3, Line = "巷口拐角，你扑住了那袋零件，胳膊擦掉一块皮。" },
+        new() { Id = 99249, ParentId = Ids.H3, Line = "脚步声消失在街角。就当是交给这座城的保管费。" },
+    };
 
     /// <summary>目录内下标（按 Id；注入映射的 RewardSet 编号用）；不在目录=-1。</summary>
     public static int EventsIndexOf(EventDef e)
@@ -217,15 +236,18 @@ public static class EventCatalog
             Ev(Ids.H2, LuckKind.Bad, 2, "管道爆裂", "水管在墙里闷响了一夜，早上墙鼓了包。",
                 Rs(op: SpecialOp.DurabilityPercentRange, opParam: EncodeDurabilityRange(3, 5, 25)),
                 Eligibility.HasFurnitureAtLeast1),
-            // H3 【选项】贼影：零件在事件触发时已被偷走（顶层 StealParts×10，对话"零件箱轻了"）；
-            // 追线数据层=受伤流血(1111)，"50% 追回（退还零件）/50% 受伤流血"的概率语义留给
-            // Task 10 执行器实现——数据层 Choices 就绪即可（选项事件接线归 Task 10）；
+            // H3 【选项】贼影（Task 10 接线定案，DESIGN.md §10）：顶层 StealParts 被 Choices 短路
+            // （RewardSpec.RunsTopLevelOp=false，代码不执行）；零件去留按分支声明式结算——
+            // 追=AddBuff 1111（受伤流血，BuffTargetType/BuffTargetID=1/0）："追回"=零件本就未失、
+            //   不另发物品（50/50 表达不了：RandomGroup 只做物品池随机，取证 DESIGN §10；
+            //   若发 ItemChange×10 = 点追净 +10 可刷，Controller 裁定 2026-11-12 否决）；
+            // 算了=ItemCost 20362×10（零件只在点"算了"时离开背包）。
             // 资格=铁制零件≥10（§5.4：否则整事件视为无资格）。【不占永久上限】
             Ev(Ids.H3, LuckKind.Bad, 2, "贼影", "地上有陌生的脚印，你的零件箱轻了。",
                 Rs(op: SpecialOp.StealParts, opParam: 10, choices: new List<Choice>
                 {
                     new() { Label = "追上去", Reward = Rs(buffs: Buffs(1111)) },  // 受伤流血（原生）
-                    new() { Label = "算了", Reward = Rs() },                       // 不追：零件已失，无额外效果
+                    new() { Label = "算了", Reward = Rs(itemCosts: Items((20362, 10))) }, // 失去铁制零件×10
                 }), Eligibility.HasParts10),
             Ev(Ids.H4, LuckKind.Bad, 2, "重病", "不是感冒。这次不是感冒。",
                 Rs(buffs: Buffs(1112))),    // 重度感染（原生）：每1h生命−4，24h
@@ -287,7 +309,8 @@ public static class EventCatalog
     private static RewardSpec Rs(
         List<ItemGain> items = null, List<int> buffs = null, List<AttrChange> attrs = null,
         SpecialOp op = SpecialOp.None, double opParam = 0, List<Choice> choices = null,
-        bool permBuffByTier = false, bool randomPickOne = false) => new()
+        bool permBuffByTier = false, bool randomPickOne = false,
+        List<ItemGain> itemCosts = null) => new()
     {
         Items = items ?? new List<ItemGain>(),
         Buffs = buffs ?? new List<int>(),
@@ -297,6 +320,7 @@ public static class EventCatalog
         Choices = choices ?? new List<Choice>(),
         PermBuffByTier = permBuffByTier,
         RandomPickOne = randomPickOne,
+        ItemCosts = itemCosts ?? new List<ItemGain>(),
     };
 
     private static List<ItemGain> Items(params (int id, int count)[] gains) =>

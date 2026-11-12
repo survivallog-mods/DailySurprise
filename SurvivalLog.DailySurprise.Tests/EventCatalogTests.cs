@@ -181,9 +181,14 @@ public sealed class EventCatalogTests
                 Assert.True(LegalItemIds.Contains(g.ItemId),
                     $"事件 {e.Key}({e.Id}) 引用了白名单外物品 {g.ItemId}");
             foreach (var c in e.Reward.Choices)
+            {
                 foreach (var g in c.Reward.Items)
                     Assert.True(LegalItemIds.Contains(g.ItemId),
                         $"事件 {e.Key}({e.Id}) 选项「{c.Label}」引用了白名单外物品 {g.ItemId}");
+                foreach (var g in c.Reward.ItemCosts)
+                    Assert.True(LegalItemIds.Contains(g.ItemId),
+                        $"事件 {e.Key}({e.Id}) 选项「{c.Label}」ItemCost 引用了白名单外物品 {g.ItemId}");
+            }
         }
     }
 
@@ -195,8 +200,12 @@ public sealed class EventCatalogTests
             foreach (var g in e.Reward.Items)
                 Assert.True(g.Count > 0, $"{e.Key}: {g.ItemId} 数量须为正");
             foreach (var c in e.Reward.Choices)
+            {
                 foreach (var g in c.Reward.Items)
                     Assert.True(g.Count > 0, $"{e.Key}/{c.Label}: {g.ItemId} 数量须为正");
+                foreach (var g in c.Reward.ItemCosts)
+                    Assert.True(g.Count > 0, $"{e.Key}/{c.Label}: ItemCost {g.ItemId} 数量须为正");
+            }
         }
     }
 
@@ -405,19 +414,27 @@ public sealed class EventCatalogTests
     }
 
     [Fact]
-    public void Events_H3_TwoChoices_ChaseLineCarriesBleeding()
+    public void Events_H3_TwoChoices_ChaseBleeds_GiveUpCostsParts()
     {
         var h3 = ById(99240); // H3 贼影
         var choices = h3.Reward.Choices;
         Assert.Equal(2, choices.Count);
         Assert.Equal("追上去", choices[0].Label);
-        // 追线数据层=受伤流血(1111)；50% 追回/50% 受伤的概率语义由 Task 10 执行器实现（见实现注）
+        // Task 10 定案（DESIGN.md §10）：50/50 表达不了（RandomGroup 只做物品池随机）——
+        // 追=受伤流血(1111) 声明式（AddBuff+BuffTargetType/BuffTargetID=1/0）；
+        // "追回"=零件未失、不另发物品（防点追净 +10 刷零件，Controller 裁定 2026-11-12）
         Assert.Equal(new[] { 1111 }, choices[0].Reward.Buffs);
+        Assert.Empty(choices[0].Reward.Items);
+        Assert.Empty(choices[0].Reward.ItemCosts);
         Assert.Equal(SpecialOp.None, choices[0].Reward.Op);
+        // 算了=ItemCost 铁制零件×10 声明式：零件只在点"算了"时离开背包（顶层 StealParts 被 Choices 短路）
         Assert.Equal("算了", choices[1].Label);
         Assert.Empty(choices[1].Reward.Buffs);
         Assert.Empty(choices[1].Reward.Items);
         Assert.Equal(SpecialOp.None, choices[1].Reward.Op);
+        var cost = Assert.Single(choices[1].Reward.ItemCosts);
+        Assert.Equal(20362, cost.ItemId);
+        Assert.Equal(10, cost.Count);
     }
 
     [Fact]

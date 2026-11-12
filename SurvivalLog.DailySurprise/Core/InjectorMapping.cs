@@ -17,14 +17,18 @@ namespace SurvivalLog.DailySurprise;
 /// - Config_Effect：33687 起（BuffInterval=float:33718、BuffMoraleInterval=float:33720、
 ///   BuffStaminaMax=int:33730、*Add/*Del=float:33733-33742、BuffSpeed=float:33765、
 ///   FloatValue0=float:33782）。
-/// ID 段（Task 6 brief）：RewardSet 基础行=99250+目录序（99250..99294）、选项行 99295..99299
-/// （L1×3+H3×2 目录序顺排）、Effect 行=99290+蓝图序（99290..99303，Effect 独立表与
-/// buff 99280..99293/RewardSet 99250..99299 数值重叠不冲突——不同表）。
-/// RewardSet 行内容口径（brief 定案，别过度设计）：
-/// - 固定 Items → ItemChange 编码（RewardEncoding：itemId 重复=件数）；
-/// - RandomPickOne（R2/E1/E3/E4/L2）→ 行留空 + Source=DS_RandomByCode（随机×1 由 Task 8 代码路径解）；
-/// - Attrs → AttriKeyChange/AttriValueChange（整数增量；小数增量抛错走代码路径）；
-/// - Buffs/PermBuffByTier/Op 系 → RewardSet 一律不承载（Task 8/9 代码路径），弹窗行照建。</summary>
+/// ID 段（Task 6 brief；Task 10 增子事件段）：RewardSet 基础行=99250+目录序（99250..99294）、
+/// 选项行 99295..99299（L1×3+H3×2 目录序顺排，Task 10 起声明式发奖——子事件行 RewardSetId 指向）、
+/// 子事件行 99245..99249（事件段 99200..99244 顺延；与 RewardSet 99250..99299 数值重叠不冲突——不同表）、
+/// Effect 行=99290+蓝图序（99290..99303，Effect 独立表与 buff 99280..99293 数值重叠不冲突——不同表）。
+/// RewardSet 行内容口径（brief 定案 + Task 10 选项行声明式）：
+/// - 基础行：固定 Items → ItemChange 编码（RewardEncoding：itemId 重复=件数）；
+///   RandomPickOne（R2/E1/E3/E4/L2）→ 行留空 + Source=DS_RandomByCode（随机×1 由 Task 8 代码路径解）；
+///   Attrs → AttriKeyChange/AttriValueChange（整数增量；小数增量抛错走代码路径）；
+///   Buffs/PermBuffByTier/Op 系 → 一律不承载（Task 8/9 代码路径），弹窗行照建；
+/// - 选项行（declarative，Task 10）：子事件 RewardSetId 声明式发奖——Items→ItemChange、
+///   Buffs→AddBuff+BuffTargetType/BuffTargetID=1/0（原生行 6014/6106 实证配对）、
+///   ItemCosts→ItemCost（itemId 重复=件数，原生行 68252 同编码）。</summary>
 public static class InjectorMapping
 {
     // —— ID 段与标记常量（Game 层哨兵/计数与测试共用）——
@@ -50,39 +54,122 @@ public static class InjectorMapping
         return FirstEffectId + (b.NewId - BuffBlueprints.FirstBlueprintId);
     }
 
-    // ———————————————— Event 行 ————————————————
+    // ———————————————— Event 行（父行 + 子事件行） ————————————————
 
-    /// <summary>EventDef → Config_Event 全字段字典（67 键，形态样式抄原生行 10011/103，
-    /// 见键值注；选项事件（Choices 非空）用 103 选择样式——ChoseID 留空，子事件接线归 Task 10）。</summary>
+    /// <summary>选项 RewardSet 行 Id 分配走查（单一编号源，Task 10）：按目录序自 99295 连续编号，
+    /// 返回 父事件 Id → 选项行 Id 列表（与 Choices 同序）。RewardSetsOf/AllRewardSets 的选项行
+    /// 与 SonEventRow 的 RewardSetId 都消费本走查——错位=实机点选发错奖，测试钉死一致性。</summary>
+    private static readonly IReadOnlyDictionary<int, IReadOnlyList<int>> OptionIdsByParent = BuildOptionIds();
+
+    private static IReadOnlyDictionary<int, IReadOnlyList<int>> BuildOptionIds()
+    {
+        var map = new Dictionary<int, IReadOnlyList<int>>();
+        var next = OptionRewardSetFirstId;
+        for (var i = 0; i < EventCatalog.Events.Count; i++)
+        {
+            var ev = EventCatalog.Events[i];
+            if (ev.Reward is not { Choices.Count: > 0 }) continue;
+            var ids = new List<int>();
+            foreach (var _ in ev.Reward.Choices) ids.Add(next++);
+            map[ev.Id] = ids;
+        }
+        return map;
+    }
+
+    /// <summary>父事件的子事件 Id 列表（EventCatalog.SonEvents 过滤，与 Choices 同序）；
+    /// 数量与 Choices 不一致=目录/子事件表失配 → fail fast（防 ChoseName/ChoseID 错位接线）。</summary>
+    private static List<int> SonIdsOf(int parentId)
+    {
+        var sons = new List<int>();
+        foreach (var s in EventCatalog.SonEvents)
+            if (s.ParentId == parentId) sons.Add(s.Id);
+        foreach (var ev in EventCatalog.Events)
+            if (ev.Id == parentId && ev.Reward is { Choices.Count: > 0 } && sons.Count != ev.Reward.Choices.Count)
+                throw new InvalidOperationException("SonEvents 与 " + parentId + " 的 Choices 数量失配（接线错位风险）");
+        return sons;
+    }
+
+    /// <summary>EventDef → Config_Event 全字段字典（67 键，形态样式抄原生行 10011/103）。
+    /// 选项事件（Choices 非空）用 103 选择样式并接线子事件（Task 10，原生 103/10010 形态）：
+    /// ChoseID=子事件 Id 列表、Default=末选项子事件（倒计时归零走它）。</summary>
     public static Dictionary<string, object> EventRow(EventDef e)
     {
         if (e == null) throw new ArgumentNullException(nameof(e));
         var choice = e.Reward is { Choices.Count: > 0 };
         var labels = choice ? e.Reward.Choices.Select(c => c.Label).ToList() : new List<string>();
-        var icon = IconPrefix + e.Icon;
+        var sons = choice ? SonIdsOf(e.Id) : new List<int>();
+        return EventRowCore(
+            id: e.Id, name: e.Title, des: e.Dialogue, icon: IconPrefix + e.Icon,
+            demoTwoMode: choice ? 3 : 2, type: choice ? 1 : 2, popUpType: choice ? 3 : 1,
+            dayCd: choice ? 3 : 1, canRepeat: true, countdown: choice ? 60 : 0, isSon: false,
+            labels: labels, choseIds: sons, def: sons.Count > 0 ? sons[sons.Count - 1] : 0, rewardSetId: 0);
+    }
 
+    /// <summary>SonEvent → Config_Event 全字段字典（67 键；模板=原生 10011/104：Type=2 Result /
+    /// PopUpType=1 / IsSon=true / DemoTwoMode 随父(103 样式=3) / DayCD=0 / CanRepeat=false）。
+    /// Name=「父标题-选项名」（原生「暴雨侵袭-用毛巾堵漏」同构）；EventDes/EventDesTaskEnd=结果台词
+    /// 同文（10011 模板）；RewardSetId=对应选项 RewardSet 行（声明式发奖，Task 10 Controller 裁定）；
+    /// 图沿用父事件图（原生 10011 同款复用）。</summary>
+    public static Dictionary<string, object> SonEventRow(SonEvent s)
+    {
+        if (s == null) throw new ArgumentNullException(nameof(s));
+        EventDef parent = null;
+        foreach (var e in EventCatalog.Events)
+            if (e.Id == s.ParentId) { parent = e; break; }
+        if (parent == null || parent.Reward is not { Choices.Count: > 0 })
+            throw new ArgumentOutOfRangeException(nameof(s), s.ParentId, "子事件 " + s.Id + " 的父事件不在目录或非选项事件");
+
+        var index = 0;   // 父 Choices 内的序（SonEvents 顺序契约：同 Choices 序）
+        foreach (var x in EventCatalog.SonEvents)
+        {
+            if (x.ParentId != s.ParentId) continue;
+            if (x.Id == s.Id) break;
+            index++;
+        }
+        if (index >= parent.Reward.Choices.Count)
+            throw new InvalidOperationException("子事件 " + s.Id + " 超出父 " + s.ParentId + " 的 Choices 数量");
+        var label = parent.Reward.Choices[index].Label;
+        var name = parent.Title + "-" + label;
+
+        return EventRowCore(
+            id: s.Id, name: name, des: s.Line, icon: IconPrefix + parent.Icon,
+            demoTwoMode: 3, type: 2, popUpType: 1,
+            dayCd: 0, canRepeat: false, countdown: 0, isSon: true,
+            labels: new List<string>(), choseIds: new List<int>(), def: 0,
+            rewardSetId: OptionIdsByParent[s.ParentId][index]);
+    }
+
+    /// <summary>Config_Event 行公共骨架（67 键全拍平）：父行/子事件行共用，差异字段经参数注入。
+    /// 共有口径：EndlessMode=1 / LogType=1 / ShowType=1 / DataMin=1 / DataMax=999 / TimeMin=1 /
+    /// TimeMax=24 / TasteRequire=-1 / OKDes=我知道了 / 条件门清零（Task 2 定案）/
+    /// StartRewardSetId=0（Task 8 裁定：防空双发；子事件发奖走 RewardSetId 非 Start）。</summary>
+    private static Dictionary<string, object> EventRowCore(
+        int id, string name, string des, string icon,
+        int demoTwoMode, int type, int popUpType, int dayCd, bool canRepeat, int countdown, bool isSon,
+        List<string> labels, List<int> choseIds, int def, int rewardSetId)
+    {
         return new Dictionary<string, object>
         {
-            ["ID"] = e.Id,
-            ["Name"] = e.Title,                    // 裸中文直写（GetLocalText 键 miss 原样透传，Task 2 实锤）
-            ["Name_Local"] = e.Title,
+            ["ID"] = id,
+            ["Name"] = name,                       // 裸中文直写（GetLocalText 键 miss 原样透传，Task 2 实锤）
+            ["Name_Local"] = name,
             ["PlayerSelectId"] = new List<int>(),  // 不限角色（模板 10011/103 均未设）
-            ["DemoTwoMode"] = choice ? 3 : 2,      // 10011=2、103=3，按各自模板
+            ["DemoTwoMode"] = demoTwoMode,         // 10011=2、103=3（子事件随父）
             ["EndlessMode"] = 1,                   // 两模板均 1
-            ["Type"] = choice ? 1 : 2,             // 1=Choice(103)、2=Result(10011)
+            ["Type"] = type,                       // 1=Choice(103)、2=Result(10011)
             ["EventLogID"] = 0,
             ["LogType"] = 1,                       // 两模板均 1（DynamicEventLogType.Normal）
             ["ShowType"] = 1,
-            ["PopUpType"] = choice ? 3 : 1,        // 103=3（选项卡）、10011=1
+            ["PopUpType"] = popUpType,             // 103=3（选项卡）、10011=1（结果卡）
             ["FurnitureID"] = new List<int>(),
             ["KeepTime"] = 0,
-            ["IsSon"] = false,                     // 独立事件（目录事件均非子事件）
-            ["EventDes"] = e.Dialogue,
-            ["EventDes_Local"] = e.Dialogue,
+            ["IsSon"] = isSon,                     // 父行 false（目录事件均独立）；子事件行 true
+            ["EventDes"] = des,
+            ["EventDes_Local"] = des,
             ["Info"] = "", ["Info_Local"] = "",
             ["DoneInfo"] = "", ["DoneInfo_Local"] = "",
-            ["EventDesTaskEnd"] = e.Dialogue,      // 10011 模板：TaskEnd 文案=EventDes 同文
-            ["EventDesTaskEnd_Local"] = e.Dialogue,
+            ["EventDesTaskEnd"] = des,             // 10011 模板：TaskEnd 文案=EventDes 同文
+            ["EventDesTaskEnd_Local"] = des,
             ["Icon"] = icon,
             ["IconEnd"] = icon,                    // 10011/103 均与 Icon 同值
             ["IconRole"] = new List<string>(),
@@ -91,15 +178,15 @@ public static class InjectorMapping
             ["DayRate"] = 0f,
             ["TimeMin"] = 1,                       // 两模板均 1/24
             ["TimeMax"] = 24,
-            ["CanRepeat"] = true,                  // 两模板均 true
-            ["DayCD"] = choice ? 3 : 1,            // 103 DayCD=3；10011 DayCD=1
+            ["CanRepeat"] = canRepeat,             // 父行 true（两模板均）；子事件行 false（104 形态）
+            ["DayCD"] = dayCd,                     // 103 DayCD=3；10011 DayCD=1；子事件 0（104 形态）
             ["HourCD"] = 0,
             ["StartThink"] = "", ["StartThink_Local"] = "",
             ["ChoseName"] = new List<string>(labels),
             ["ChoseName_Local"] = new List<string>(labels),
-            ["ChoseID"] = new List<int>(),         // Task 10 接线（数据层 Choices 就绪即可）
-            ["Default"] = 0,
-            ["Countdown"] = choice ? 60 : 0,       // 103 Countdown=60（倒计时归零走 Default）
+            ["ChoseID"] = new List<int>(choseIds), // Task 10：选项事件=子事件 Id 列表（与 Choices 同序）
+            ["Default"] = def,                     // 选项事件=末选项子事件（原生 103/10010 同构）；其余 0
+            ["Countdown"] = countdown,             // 103 Countdown=60（倒计时归零走 Default）
             ["ActionRequire"] = new List<int>(), ["ActionTime"] = new List<int>(),
             ["ItemRequire"] = new List<int>(), ["ItemTime"] = new List<int>(),
             ["TaskTime"] = 0,                      // 刻意偏离模板：任务时限不设（Task 2 定案）
@@ -113,7 +200,7 @@ public static class InjectorMapping
             ["TaskConditionSetId"] = 0,
             ["StartRewardSetId"] = 0,               // Task 8 Controller 裁定（防空双发）：原生 1760 行同为 0，
                                                     // 弹窗不受影响；奖励统一走 RewardExecutor 代码路径
-            ["RewardSetId"] = 0,                    // 刻意置 0：与 StartRewardSet 区分归因（Task 2 定案）
+            ["RewardSetId"] = rewardSetId,          // 父行 0（归因单一，Task 2 定案）；子事件行=选项行（声明式）
             ["ExpiredRewardSetId"] = 0,
             ["SMSContactId"] = 0,
             ["SMSContent"] = "", ["SMSContent_Local"] = "",
@@ -125,56 +212,60 @@ public static class InjectorMapping
 
     // ———————————————— RewardSet 行 ————————————————
 
-    /// <summary>单事件全部 RewardSet 行：基础行（1 行）+ 每选项 1 行（L1×3、H3×2）。
-    /// 选项行 Id 自 99295 按目录序顺排（与 <see cref="AllRewardSets"/> 同一编号走查，结果一致）。</summary>
+    /// <summary>单事件全部 RewardSet 行：基础行（1 行）+ 每选项 1 行（L1×3、H3×2，声明式）。
+    /// 选项行 Id 消费 <see cref="OptionIdsByParent"/> 单一走查（与 AllRewardSets 结果一致）。</summary>
     public static IReadOnlyList<(int Id, Dictionary<string, object> Row)> RewardSetsOf(EventDef e)
     {
         if (e == null) throw new ArgumentNullException(nameof(e));
-        var rows = new List<(int, Dictionary<string, object>)>();
-        var next = OptionRewardSetFirstId;
         for (var i = 0; i < EventCatalog.Events.Count; i++)
         {
             var ev = EventCatalog.Events[i];
-            if (ev.Id != e.Id)
-            {
-                if (ev.Reward is { Choices.Count: > 0 }) next += ev.Reward.Choices.Count;
-                continue;
-            }
-            var baseId = FirstRewardSetId + i;
-            rows.Add((baseId, RewardSetRow(ev.Reward, baseId)));
+            if (ev.Id != e.Id) continue;
+            var rows = new List<(int, Dictionary<string, object>)> { (FirstRewardSetId + i, RewardSetRow(ev.Reward, FirstRewardSetId + i)) };
             if (ev.Reward is { Choices.Count: > 0 })
-                foreach (var c in ev.Reward.Choices)
-                    rows.Add((next, RewardSetRow(c.Reward, next++)));
+            {
+                var ids = OptionIdsByParent[ev.Id];
+                for (var j = 0; j < ev.Reward.Choices.Count; j++)
+                    rows.Add((ids[j], RewardSetRow(ev.Reward.Choices[j].Reward, ids[j], declarative: true)));
+            }
             return rows;
         }
         throw new ArgumentOutOfRangeException(nameof(e), e.Id, "非 EventCatalog 目录事件");
     }
 
-    /// <summary>全目录 RewardSet 行（45 基础 + 5 选项 = 50 行，Id=99250..99299 连续不重）。</summary>
+    /// <summary>全目录 RewardSet 行（45 基础 + 5 选项 = 50 行，Id=99250..99299 连续不重；
+    /// 选项行声明式，Task 10）。</summary>
     public static IReadOnlyList<(int Id, Dictionary<string, object> Row)> AllRewardSets()
     {
         var rows = new List<(int, Dictionary<string, object>)>();
-        var next = OptionRewardSetFirstId;
         for (var i = 0; i < EventCatalog.Events.Count; i++)
         {
             var ev = EventCatalog.Events[i];
             var baseId = FirstRewardSetId + i;
             rows.Add((baseId, RewardSetRow(ev.Reward, baseId)));
-            if (ev.Reward is { Choices.Count: > 0 })
-                foreach (var c in ev.Reward.Choices)
-                    rows.Add((next, RewardSetRow(c.Reward, next++)));
+            if (ev.Reward is not { Choices.Count: > 0 }) continue;
+            var ids = OptionIdsByParent[ev.Id];
+            for (var j = 0; j < ev.Reward.Choices.Count; j++)
+                rows.Add((ids[j], RewardSetRow(ev.Reward.Choices[j].Reward, ids[j], declarative: true)));
         }
         return rows;
     }
 
     /// <summary>RewardSpec → Config_RewardSet 全字段字典（44 键）。内容口径见类注；
-    /// 未承载字段=显式安全缺省（空列表/0，官方消费方不读出未定义态——Task 2 定案）。</summary>
-    public static Dictionary<string, object> RewardSetRow(RewardSpec reward, int id)
+    /// 未承载字段=显式安全缺省（空列表/0，官方消费方不读出未定义态——Task 2 定案）。
+    /// declarative=true（选项行，Task 10）：Buffs→AddBuff+BuffTarget 配对、ItemCosts→ItemCost
+    /// 由原生 RewardSetManager 声明式执行；false（基础行）：Buffs/ItemCosts 不承载（代码路径口径）。</summary>
+    public static Dictionary<string, object> RewardSetRow(RewardSpec reward, int id, bool declarative = false)
     {
         if (reward == null) throw new ArgumentNullException(nameof(reward));
         var items = reward.RandomPickOne
             ? new List<int>()
             : RewardEncoding.ItemChangeOf(reward);   // itemId 重复=件数（行 6420 语义）
+        var itemCost = declarative ? RewardEncoding.ItemCostOf(reward) : new List<int>();
+        var addBuff = declarative ? new List<int>(reward.Buffs ?? new List<int>()) : new List<int>();
+        var buffTargetType = new List<int>();        // 原生行 6014/6106 实证：每 buff 配 BuffTargetType=1/BuffTargetID=0
+        var buffTargetId = new List<int>();
+        for (var i = 0; i < addBuff.Count; i++) { buffTargetType.Add(1); buffTargetId.Add(0); }
         var keys = new List<int>();
         var values = new List<int>();
         foreach (var a in reward.Attrs)
@@ -194,11 +285,11 @@ public static class InjectorMapping
             ["AttriValueChange"] = values,
             ["SurvivalPoint"] = 0, ["BeliefPoint"] = 0,
             ["ItemChange"] = items,
-            ["ItemPackage"] = new List<int>(), ["ItemCost"] = new List<int>(),
+            ["ItemPackage"] = new List<int>(), ["ItemCost"] = itemCost,
             ["ClearFurnitureBag"] = new List<int>(),
             ["FurniturelD"] = new List<int>(), ["FurnitureHP"] = new List<int>(),
-            ["BuffTargetType"] = new List<int>(), ["BuffTargetID"] = new List<int>(),
-            ["AddBuff"] = new List<int>(), ["DelBuff"] = new List<int>(),   // Buffs 走 Task 8 代码路径（口径）
+            ["BuffTargetType"] = buffTargetType, ["BuffTargetID"] = buffTargetId,
+            ["AddBuff"] = addBuff, ["DelBuff"] = new List<int>(),   // 基础行 Buffs 走 Task 8 代码路径（口径）
             ["ChangeStatus"] = new List<int>(),
             ["AddTag"] = new List<string>(), ["DelTag"] = new List<string>(),
             ["ForbidTag"] = new List<string>(), ["ForbidTime"] = new List<int>(),
