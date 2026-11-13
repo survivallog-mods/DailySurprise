@@ -24,7 +24,16 @@ internal static class Patch_CaptureDaySnapshot
         try
         {
             LastFire = DateTime.Now;
-            DailyFlow.OnNewDay(day);
+            var triggerHour = DsConfig.TriggerHourValue;
+            if (triggerHour > 0)
+            {
+                // Task 14：TriggerHour>0 时结算通道退位——只留一行节流 trace 不触发（防双通道），
+                // 本日触发改由 HourWatcher 小时门在 hour>=TriggerHour 时投递
+                DsTrace.WriteThrottled("daily", "hook: day=" + day + " 结算（TriggerHour=" + triggerHour
+                    + ">0，小时门接管本日触发）");
+                return;
+            }
+            DailyFlow.OnNewDay(day);   // TriggerHour=0：旧行为（结算即触发）
         }
         catch (Exception e) { DsTrace.WriteThrottled("daily", "hook: " + e.Message); }
     }

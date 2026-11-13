@@ -1,3 +1,5 @@
+using System;
+
 namespace SurvivalLog.DailySurprise;
 
 /// <summary>触发展示形态（spec §8.1 平淡静音）：平淡档 ShowPlainPopup=false 时不拉事件卡，
@@ -8,9 +10,66 @@ public enum PresentationKind
     HeadTalk,
 }
 
+/// <summary>事件卡展示通道（Task 14 回退链的胜利通道，CardChannel.None=全失败走头顶气泡兜底）。
+/// 通道序：C1 TryForce(id,false) → Heal 自愈拍零后重试 C1 → C2 TryForce(id,true) →
+/// C3 ForceTrigger(id,true)（void，无异常=视为成功）→ C4 TriggerEventUI（void，同前）。</summary>
+internal enum CardChannel
+{
+    None,
+    C1,
+    Heal,
+    C2,
+    C3,
+    C4,
+}
+
+/// <summary>void 通道调用结果（Task 15）：void 方法无返回值可判，"无异常"与"真成功"之间
+/// 存在静默 no-op（实机 daily.txt 2026-11-12：c3 ForceTriggerEvent 无异常被当成功停链
+/// card=C3，玩家无弹窗）——以 HasPendingUIEvent 探针（dump.cs:420326）复核后归为三态。</summary>
+public enum VoidCallOutcome
+{
+    /// <summary>调用抛异常。</summary>
+    Threw,
+
+    /// <summary>void 无异常但探针 false（静默 no-op：事件未入待处理 UI 队列）。</summary>
+    ProbeFalse,
+
+    /// <summary>void 无异常且探针 true（事件已入待处理 UI 队列，弹窗可期）。</summary>
+    ProbeTrue,
+}
+
+/// <summary>void 通道去留决策（Task 15）：Win=真成功停链；Continue=试下一通道（c3）；
+/// Fallback=链尾（c4）落 HeadTalk 兜底。</summary>
+public enum ChannelDecision
+{
+    Continue,
+    Win,
+    Fallback,
+}
+
+/// <summary>Config_Event 可疑门控字段快照（Task 14 会话内自愈的纯侧数据；
+/// 字段名与 dump.cs:35896~35937 公开属性一一对应）。</summary>
+internal readonly struct GateFields
+{
+    internal int ConditionSetId { get; init; }
+    internal int NeedConditionSetId { get; init; }
+    internal int TaskConditionSetId { get; init; }
+    internal int DayCd { get; init; }
+    internal bool CanRepeat { get; init; }
+    internal int MaxTimes { get; init; }
+    internal int TimeMin { get; init; }
+    internal int TimeMax { get; init; }
+    internal int DataMin { get; init; }
+    internal int DataMax { get; init; }
+}
+
 /// <summary>每日触发链的纯逻辑半边（Task 7）。本文件**零 BepInEx/il2cpp 依赖**、由 Tests 源链接
 /// 钉死判定规则；接线半边（OnNewDay/IsPostDisaster/展示分发）在同 partial 类的
-/// Game/Trigger/DailyFlow.Runtime.cs（仅主工程编译）。</summary>
+/// Game/Trigger/DailyFlow.Runtime.cs（仅主工程编译）。
+/// Task 14 增：HourGateReached（TriggerHour&gt;0 定时触发门）、NeedsGateHeal/GateHealPlan
+/// （通道 1 连败的自愈决策）、FallbackHeadTalkText（全通道失败兜底文案）。
+/// Task 15 增：DecideVoidChannel（void 通道 C3/C4 的探针去留——no-op 不停链、链尾落兜底）。
+/// Task 16 增：ResolveCardType（c4/探针 eventType 的 DebugCardType 覆盖决策——诊断弹窗形态）。</summary>
 internal static partial class DailyFlow
 {
     /// <summary>是否应触发今天的掷骰（spec §5.1 前置门）：
@@ -22,6 +81,66 @@ internal static partial class DailyFlow
     /// <summary>展示形态（spec §8.1）：平淡档且 ShowPlainPopup=false → 头顶气泡；其余一律事件卡。</summary>
     internal static PresentationKind Presentation(LuckKind kind, bool showPlainPopup) =>
         kind == LuckKind.Plain && !showPlainPopup ? PresentationKind.HeadTalk : PresentationKind.EventCard;
+
+    /// <summary>定时小时门（Task 14，TriggerHour&gt;0 时）：新一天（day 越过已触发日）且当前
+    /// 游戏内小时到点（hour &gt;= TriggerHour）→ true。TriggerHour&lt;=0（旧行为）恒 false——
+    /// 结算 hook 负责即时触发，小时门不参与。lastTriggeredDay 口径=同日幂等闸（读档重进同日不重掷）。</summary>
+    internal static bool HourGateReached(int day, int hour, int triggerHour, int lastTriggeredDay) =>
+        triggerHour > 0 && day > lastTriggeredDay && hour >= triggerHour;
+
+    /// <summary>会话内自愈武装（Task 14）：通道 1（TryForce 默认参）连续失败 ≥2 天且本会话未自愈过
+    /// → true（注入行可疑门控拍零后重试一次）。首日失败不自愈——当天回退链自身还有 C2~C4 兜底。</summary>
+    internal static bool NeedsGateHeal(int channel1FailStreak, bool alreadyHealed) =>
+        channel1FailStreak >= 2 && !alreadyHealed;
+
+    /// <summary>可疑门控清单（Task 14 纯决策）：非零条件/CD/时窗/数据窗字段或 CanRepeat=true 逐项
+    /// 列出"字段:现值→0"（顺序固定=brief 字段序）；全零=空串（原生 0 值行常态，无可自愈）。
+    /// 依据 Config_Event 原生 2101 行统计：ConditionSetId 0 值 68%、MaxTimes 0 值 99.8%、
+    /// TimeMin/TimeMax/DayCD 0 值约半数、DataMin/DataMax 全零行 275 行——全零是合法原生形态。</summary>
+    internal static string GateHealPlan(GateFields f)
+    {
+        var plan = "";
+        Append(ref plan, "ConditionSetId", f.ConditionSetId);
+        Append(ref plan, "NeedConditionSetId", f.NeedConditionSetId);
+        Append(ref plan, "TaskConditionSetId", f.TaskConditionSetId);
+        Append(ref plan, "DayCD", f.DayCd);
+        if (f.CanRepeat) plan += (plan.Length > 0 ? " " : "") + "CanRepeat:True→False";
+        Append(ref plan, "MaxTimes", f.MaxTimes);
+        Append(ref plan, "TimeMin", f.TimeMin);
+        Append(ref plan, "TimeMax", f.TimeMax);
+        Append(ref plan, "DataMin", f.DataMin);
+        Append(ref plan, "DataMax", f.DataMax);
+        return plan;
+
+        static void Append(ref string s, string name, int v)
+        {
+            if (v != 0) s += (s.Length > 0 ? " " : "") + name + ":" + v + "→0";
+        }
+    }
+
+    /// <summary>全通道失败兜底文案（Task 14）：HeadTalk 至少让玩家有感知。</summary>
+    internal static string FallbackHeadTalkText(string title) => "喜从天降：" + title;
+
+    /// <summary>void 通道（C3 ForceTriggerEvent / C4 TriggerEventUI，Task 15）去留决策：
+    /// 探针 true 才算真成功（Win 停链）；探针 false（静默 no-op）或抛异常——c3（非链尾）
+    /// Continue 走 c4、c4（链尾）Fallback 落 HeadTalk 兜底。实机教训：c3 void 无异常≠弹窗。</summary>
+    internal static ChannelDecision DecideVoidChannel(bool isLastChannel, VoidCallOutcome outcome) =>
+        outcome == VoidCallOutcome.ProbeTrue
+            ? ChannelDecision.Win
+            : isLastChannel ? ChannelDecision.Fallback : ChannelDecision.Continue;
+
+    /// <summary>void 通道（C4 TriggerEventUI 与 C3/C4 探针）实际 eventType 决策（Task 16 诊断）：
+    /// typeOverride=-1=自动（注入行 Type：直发 2=Result / 选项 1=Task）；0/1/2=强制覆盖
+    /// （DynamicEventType 枚举 dump.cs:57934）。越界值保守拒绝=忽略覆盖保持自动映射并 warn 留痕
+    /// ——不夹回边界值：夹回会产生作者没要求的类型，弹窗形态扫描结论被污染；拒绝+Warn 让
+    /// cfg 写错立即可见（实机扫描 DebugCardType 依次 -1/0/1/2，错值静默夹回会得出假结论）。</summary>
+    internal static int ResolveCardType(int rowType, int typeOverride, Action<string> warn)
+    {
+        if (typeOverride >= 0 && typeOverride <= 2) return typeOverride;
+        if (typeOverride != -1)
+            warn?.Invoke("DebugCardType=" + typeOverride + " 越界（合法 -1/0/1/2），已忽略覆盖保持自动映射");
+        return rowType;
+    }
 
     /// <summary>掷骰后记账（spec §5.1/§5.4；纯函数——返回新 RollState，不改写入参）：
     /// - BadStreak：按 Kind——霉运 +1（含落空：按 Kind 记，口径=今天没有好事），好运/平淡清 0

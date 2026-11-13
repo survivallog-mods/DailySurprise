@@ -98,6 +98,15 @@ internal static class DayWatcher
             _watchDay = day;
             if ((DateTime.Now - Patch_CaptureDaySnapshot.LastFire).TotalSeconds < 60)
                 return;   // hook 刚处理过：让路（同日幂等兜底，不写行避免噪声）
+            var triggerHour = DsConfig.TriggerHourValue;
+            if (triggerHour > 0)
+            {
+                // Task 14 同步语义：小时门（HourWatcher）负责本日触发，存档 meta 兜底通道同样退位——
+                // 只留一行节流 trace，防止结算后小时未到就提前触发
+                DsTrace.WriteThrottled("daily", "watcher: 检测日翻 第" + advanced + "天（TriggerHour="
+                    + triggerHour + ">0，小时门接管本日触发）");
+                return;
+            }
             DsTrace.Write("daily", "watcher: 检测日翻 第" + advanced + "天（hook 未达，兜底触发）");
             DailyFlow.OnNewDay(advanced);
         }

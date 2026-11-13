@@ -23,7 +23,7 @@ public sealed class DailySurprisePlugin : BasePlugin
     public override void Load()
     {
         Log = base.Log;
-        DsConfig.Init(Config);   // cfg 全 9 项（spec §7.4 正式 8 项 + DebugForceEventId）集中绑定，热更=实时取值
+        DsConfig.Init(Config);   // cfg 全 11 项（spec §7.4 正式 8 项 + TriggerHour + 调试 DebugForceEventId/DebugCardType）集中绑定，热更=实时取值
 
         // 自证文件 trace\_DONE.txt（内容=GUID+时间戳，硬规则9：不依赖 LogOutput.log）
         DsTrace.Write("_DONE", Ds.Guid);
@@ -72,11 +72,15 @@ internal sealed class DsTicker : MonoBehaviour
         _acc += UnityEngine.Time.unscaledDeltaTime;
         if (_acc < 2f) return;
         _acc = 0;
+        try { ConfigRegistrar.Step(); }   // Task 17：快照注册兜底（Configs 补注册先于任何触发/强制链；
+        catch (Exception e) { DsTrace.WriteThrottled("ticker", "ConfigRegistrar: " + e.Message); }  //     主通道=postfix StartBattle_AfterAgent
         try { SpikeForce.OnStep(); }
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "SpikeForce: " + e.Message); }
         try { PendingFlusher.Step(); }   // 进档补发挂账奖励（Task 8；先于每日触发——DayWatcher 在后）
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "PendingFlusher: " + e.Message); }
-        try { DayWatcher.Step(); }   // 兜底日翻检测（SaveMgr 模式；OnNewDay 同日幂等防双触发）
+        try { HourWatcher.Step(); }   // 定时小时门（Task 14：TriggerHour>0 时唯一触发源；=0 静默）
+        catch (Exception e) { DsTrace.WriteThrottled("ticker", "HourWatcher: " + e.Message); }
+        try { DayWatcher.Step(); }   // 兜底日翻检测（SaveMgr 模式；TriggerHour>0 时退位只记 trace）
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "DayWatcher: " + e.Message); }
     }
 }
@@ -104,23 +108,19 @@ internal static class SpikeForce
 
         if (ReferenceEquals(_forcedOn, dem) && _forcedId == id) return;   // 本档已触发且 cfg 未变
 
-        bool ok;
-        try { ok = dem.TryForceTriggerEvent(id, false); }
-        catch (Exception e)
-        {
-            DsTrace.Write("force", "TryForceTriggerEvent(" + id + ") 抛异常: " + e.Message);
-            _forcedOn = dem; _forcedId = id;           // 抛异常同样记已试（不刷屏），换档/改 cfg 后再试
-            return;
-        }
+        // Task 14：与每日链同源的展示回退链（C1→Heal→C2→C3→C4，逐通道诊断行写 daily.txt）——
+        // 强制通道是弹窗修复的实机验证入口，单发 TryForce 在 card=False 机型上验不出修复效果
+        var channel = DailyFlow.TriggerEventCard(id, DailyFlow.FindEvent(id));
+        var ok = channel != CardChannel.None;
         _forcedOn = dem; _forcedId = id;
-        DsTrace.Write("force", "TryForceTriggerEvent(" + id + ") -> " + ok
+        DsTrace.Write("force", "展示回退链(" + id + ") -> " + (ok ? channel.ToString() : "全通道失败")
             + "（" + DescribeEvent(id)
             + "，在册 event/rewardSet/buff/effect=" + report.Events + "/" + report.RewardSets
             + "/" + report.BuffRows + "/" + report.EffectRows
             + "。预期：直发事件弹卡（展示归原生）+ 代码路径即时发放（见 trace\\grants.txt）；"
             + "选项事件（L1=99224/H3=99240）弹选项卡——点选触发子事件（99245~99249）声明式发奖"
             + "（Task 10 接线），顶层不代码发放（H3 零件损失在「算了」子事件 ItemCost））");
-        DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + ok);
+        DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + channel);
         if (ok) ForceGrant(id);   // 调试链自带发放（StartRewardSetId=0 无原生直发，不存在双发）
     }
 
@@ -167,8 +167,9 @@ internal static class SpikeForce
 
     /// <summary>DynamicEventManager 可达性：BattleLogicWorld 单例 → _DynamicEventManager
     /// （internal 属性 dump.cs:385844，interop 代理公开；BaseSingleton.IsInstanceCreated 防护
-    /// ——BagTable.Cm / EndlessGuard HealModellessDevices 同款访问模式）。</summary>
-    private static GameCore.HotUpdate.Battle.Logic.DynamicEventManager LiveDem()
+    /// ——BagTable.Cm / EndlessGuard HealModellessDevices 同款访问模式）。
+    /// Task 14 起 DailyFlow 回退链同源复用（internal）。</summary>
+    internal static GameCore.HotUpdate.Battle.Logic.DynamicEventManager LiveDem()
     {
         try
         {
