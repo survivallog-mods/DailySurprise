@@ -115,41 +115,48 @@ internal static class SpikeForce
         _forcedOn = dem; _forcedId = id;
         DsTrace.Write("force", "展示回退链(" + id + ") -> " + (ok ? channel.ToString() : "全通道失败")
             + "（" + DescribeEvent(id)
-            + "，在册 event/rewardSet/buff/effect=" + report.Events + "/" + report.RewardSets
-            + "/" + report.BuffRows + "/" + report.EffectRows
-            + "。预期：直发事件弹卡（展示归原生）+ 代码路径即时发放（见 trace\\grants.txt）；"
-            + "选项事件（L1=99224/H3=99240）弹选项卡——点选触发子事件（99245~99249）声明式发奖"
-            + "（Task 10 接线），顶层不代码发放（H3 零件损失在「算了」子事件 ItemCost））");
+            + "，在册 event/rewardSet/randomGroup/buff/effect=" + report.Events + "/" + report.RewardSets
+            + "/" + report.RandomGroups + "/" + report.BuffRows + "/" + report.EffectRows
+            + "。预期：直发事件弹卡——奖励清单上卡、点\"我知道了\"原生发放（StartRewardSetId 已恢复，"
+            + "数量/变体按当前难度烘焙）；选项事件（L1=99224/H3=99240）弹选项卡——点选触发子事件"
+            + "（99245~99249）声明式发奖；Op 系惩罚（M1/M3/M4/H2/D2/D1）由调试链 PunishmentOps 执行）");
         DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + channel);
-        if (ok) ForceGrant(id);   // 调试链自带发放（StartRewardSetId=0 无原生直发，不存在双发）
+        ForceGrant(id, channel);   // T18 fix#1：卡成功=仅 Op 系；全败=气泡兜底语义全量代码发奖
     }
 
-    /// <summary>调试强制的同款代码路径发放（Task 8 实机清单用：强制 G1 核对背包数量/塞满背包强制 G5
-    /// 验证挂账→次日补发）。走正式 Grant（按当前 cfg 难度缩放）+ 挂账入当前档 StateStore，
-    /// 与 DailyFlow.OnNewDay 的发放链路完全同源——自然触发与强制互不复用随机源，各发各的。
-    /// 选项事件（L1/H3，Task 10）全程声明式：父行 ChoseID→子事件行→RewardSetId 原生发奖，
-    /// 调试链路不再代码发放（与 RewardExecutor.RunsTopLevelOp 短路同语义，防顶层 Op 双发）。</summary>
-    private static void ForceGrant(int id)
+    /// <summary>调试强制的发奖分流（T18 防双发 + fix#1 气泡兜底同步语义，与 DailyFlow.OnNewDay 同源）：
+    /// 卡通道成功（含选项卡）→ 物品/buff/属性/永久增益由原生 RewardSet 声明式结算（直发行
+    /// StartRewardSetId 已恢复），代码只跑 RunsTopLevelOp 的 Op 系（选项事件顶层短路维持——
+    /// H3 零件损失在「算了」子事件 ItemCost）；全通道失败（NeedsBubbleGrant，调试链无气泡展示、
+    /// 奖励照发）→ RewardExecutor 全量代码发奖+拒收挂账（数量=RewardSpec 基准×当前难度，
+    /// 与注入行烘焙同公式，不二次缩放）。</summary>
+    private static void ForceGrant(int id, CardChannel channel)
     {
         try
         {
             var def = DailyFlow.FindEvent(id);
             if (def == null) return;
-            var spec = def.Reward;
-            if (spec is { Choices.Count: > 0 }) return;   // 选项事件：点选结算归原生子事件链，无代码发放
             var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
-            var res = RewardExecutor.Grant(spec, p, new System.Random(), "force event=" + id);
-            if (res.Queued.Count > 0)
+            if (DailyFlow.NeedsBubbleGrant(PresentationKind.EventCard, channel))
             {
-                var slotDir = DailyFlow.SlotDir();
-                if (slotDir != null)
+                var res = RewardExecutor.Grant(def.Reward, p, new System.Random(), "force event=" + id + " bubble");
+                if (res.Queued.Count > 0)
                 {
-                    var st = StateStore.Load(slotDir, out _);
-                    st.PendingRewards.AddRange(res.Queued);
-                    StateStore.Save(st, slotDir);
+                    var slotDir = DailyFlow.SlotDir();
+                    if (slotDir != null)
+                    {
+                        var st = StateStore.Load(slotDir, out _);
+                        st.PendingRewards.AddRange(res.Queued);
+                        StateStore.Save(st, slotDir);
+                    }
+                    DsTrace.Write("force", "强制发放（气泡兜底）：拒收入队 " + res.Queued.Count + " 条"
+                        + (slotDir == null ? "（存档名不可达未持久化！）" : "（已入 state.json，下次进档补发）"));
                 }
-                DsTrace.Write("force", "强制发放：拒收入队 " + res.Queued.Count + " 条"
-                    + (slotDir == null ? "（存档名不可达未持久化！）" : "（已入 state.json，次日进档补发）"));
+            }
+            else if (def.Reward is { RunsTopLevelOp: true })
+            {
+                var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, new System.Random());
+                DsTrace.Write("force", "强制惩罚：event=" + id + " op=" + def.Reward.Op + "[" + summary + "]");
             }
         }
         catch (Exception e) { DsTrace.WriteThrottled("force", "ForceGrant: " + e.Message); }

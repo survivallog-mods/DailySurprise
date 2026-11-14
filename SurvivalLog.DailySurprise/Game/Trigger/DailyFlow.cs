@@ -12,8 +12,10 @@ public enum PresentationKind
 
 /// <summary>事件卡展示通道（Task 14 回退链的胜利通道，CardChannel.None=全失败走头顶气泡兜底）。
 /// 通道序：C1 TryForce(id,false) → Heal 自愈拍零后重试 C1 → C2 TryForce(id,true) →
-/// C3 ForceTrigger(id,true)（void，无异常=视为成功）→ C4 TriggerEventUI（void，同前）。</summary>
-internal enum CardChannel
+/// C3 ForceTrigger(id,true)（void，无异常=视为成功）→ C4 TriggerEventUI（void，同前）。
+/// public=与 VoidCallOutcome/ChannelDecision 同族通道决策枚举（T18 fix#1 起 NeedsBubbleGrant
+/// 消费、表驱动测试签名引用）。</summary>
+public enum CardChannel
 {
     None,
     C1,
@@ -69,7 +71,8 @@ internal readonly struct GateFields
 /// Task 14 增：HourGateReached（TriggerHour&gt;0 定时触发门）、NeedsGateHeal/GateHealPlan
 /// （通道 1 连败的自愈决策）、FallbackHeadTalkText（全通道失败兜底文案）。
 /// Task 15 增：DecideVoidChannel（void 通道 C3/C4 的探针去留——no-op 不停链、链尾落兜底）。
-/// Task 16 增：ResolveCardType（c4/探针 eventType 的 DebugCardType 覆盖决策——诊断弹窗形态）。</summary>
+/// Task 16 增：ResolveCardType（c4/探针 eventType 的 DebugCardType 覆盖决策——诊断弹窗形态）。
+/// T18 fix#1 增：NeedsBubbleGrant（气泡路径代码发奖判定——卡未显示则声明式无载体，代码照发）。</summary>
 internal static partial class DailyFlow
 {
     /// <summary>是否应触发今天的掷骰（spec §5.1 前置门）：
@@ -81,6 +84,15 @@ internal static partial class DailyFlow
     /// <summary>展示形态（spec §8.1）：平淡档且 ShowPlainPopup=false → 头顶气泡；其余一律事件卡。</summary>
     internal static PresentationKind Presentation(LuckKind kind, bool showPlainPopup) =>
         kind == LuckKind.Plain && !showPlainPopup ? PresentationKind.HeadTalk : PresentationKind.EventCard;
+
+    /// <summary>气泡路径代码发奖判定（T18 fix#1 Controller 裁定：显示走气泡、奖励照发）：
+    /// 事件卡未显示——平淡静音气泡（presentation=HeadTalk，通道未尝试），或事件卡全通道失败
+    /// （channel=None）转气泡兜底——声明式奖励没有载体（卡不显示=原生 FSM 不结算 RewardSetId），
+    /// 由 RewardExecutor 保留代码路径照发（Items/Buffs/Attrs/PermBuffByTier/RandomPickOne 全形状，
+    /// Op 系经 Grant 内 RunsTopLevelOp 分流照跑）。卡通道成功（含选项卡）→ 原生声明式结算，
+    /// 代码停发（T18 防双发口径不变）。落空（def=null）：Grant 空操作，判定值无副作用。</summary>
+    internal static bool NeedsBubbleGrant(PresentationKind presentation, CardChannel channel) =>
+        presentation == PresentationKind.HeadTalk || channel == CardChannel.None;
 
     /// <summary>定时小时门（Task 14，TriggerHour&gt;0 时）：新一天（day 越过已触发日）且当前
     /// 游戏内小时到点（hour &gt;= TriggerHour）→ true。TriggerHour&lt;=0（旧行为）恒 false——

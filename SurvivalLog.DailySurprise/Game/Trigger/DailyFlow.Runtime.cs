@@ -9,10 +9,13 @@ namespace SurvivalLog.DailySurprise;
 /// 链路：灾后门控 → 分槽 Load → ShouldTrigger（同日幂等）→ 表就绪探针 → DifficultyTable.Resolve
 ///（tier/自定义来自 DsConfig；非法值由 Resolve 回退档 3）→ LuckEngine.Roll（资格=EligibilityChecker，
 /// 永久负面/替补=EventCatalog）→ NextState 记账（Save 原子写）→ 按形态展示（事件卡 Task 14 回退链
-/// C1→Heal→C2→C3→C4，全败走头顶气泡兜底 / 平淡静音 Unit_ShowHeadTalk）→ **RewardExecutor.Grant 发放**
-///（Task 8：物品×倍率缩放入包、拒收入 PendingRewards 重存；事件行 StartRewardSetId=0 无原生直发，
-/// 不存在双发）→ 每天恰好一行 trace\daily.txt（day+EventId+胜利通道+granted/queued+WorldStateType）；
-/// 通道失败日额外产生逐通道诊断行。
+/// C1→Heal→C2→C3→C4，全败走头顶气泡兜底 / 平淡静音 Unit_ShowHeadTalk）→ **发奖分流**
+///（T18 防双发+fix#1：卡显示 → 物品/buff/属性/永久增益由原生 RewardSet 声明式结算——事件行
+/// RewardSetId 结果阶段挂法（T19）、行内容按当前难度烘焙，卡上显示清单、点确认后发放，代码只跑
+/// RunsTopLevelOp 的 Op 系——M1/M3/M4/H2/D2/D1 顶层，H3 顶层被 Choices 短路维持 T10 裁定；
+/// 卡未显示（平淡静音气泡/全通道失败转气泡——NeedsBubbleGrant）→ RewardExecutor 保留代码路径
+/// 全量照发+拒收挂账，显示走气泡、奖励照发）→ 每天恰好一行 trace\daily.txt
+///（day+EventId+胜利通道+op/granted/queued 标记+WorldStateType）；通道失败日额外产生逐通道诊断行。
 /// 进档补发（PendingFlusher，DsTicker 驱动）先于本每日触发链执行。</summary>
 internal static partial class DailyFlow
 {
@@ -82,34 +85,57 @@ internal static partial class DailyFlow
             // —— 展示分发（EventId=0 落空：无展示）——
             var def = FindEvent(outcome.EventId);
             string how;
+            var presentation = PresentationKind.HeadTalk;   // 落空默认（def=null 时发奖判定无副作用）
+            var channel = CardChannel.C1;
             if (outcome.EventId == 0)
                 how = "落空（层内无资格候选）";
-            else if (Presentation(outcome.Kind, DsConfig.PlainPopupEnabled) == PresentationKind.EventCard)
-            {
-                // Task 14 回退链：胜利通道名入每日行；全失败转头顶气泡兜底（玩家至少有感知）
-                var channel = TriggerEventCard(outcome.EventId, def);
-                how = channel == CardChannel.None
-                    ? "card=ALL_CHANNELS_FAILED talk="
-                      + ShowHeadTalk(FallbackHeadTalkText(def?.Title ?? ""), 4f)
-                    : "card=" + channel;
-            }
             else
-                how = "talk=" + ShowHeadTalk(def?.Dialogue ?? "");
-
-            // —— 发放（Task 8；Controller 裁定：事件行 StartRewardSetId=0，奖励统一代码路径，
-            //    展示后立即 Grant——物品按 p.RewardMult 缩放、拒收入队。落空/无载荷 spec=空操作）——
-            var context = "day=" + day + " event=" + outcome.EventId
-                + (def != null ? "「" + def.Title + "」" : "");
-            var grant = RewardExecutor.Grant(def?.Reward, p, rand, context);
-            if (grant.Queued.Count > 0)
             {
-                // 挂账持久化：入队 spec=已缩放形状（补发 RewardMult=1 原样发），追加进 PendingRewards 重存
-                next.PendingRewards.AddRange(grant.Queued);
-                StateStore.Save(next, slotDir);
-                how += " queued=" + grant.Queued.Count;
+                presentation = Presentation(outcome.Kind, DsConfig.PlainPopupEnabled);
+                if (presentation == PresentationKind.EventCard)
+                {
+                    // Task 14 回退链：胜利通道名入每日行；全失败转头顶气泡兜底（玩家至少有感知）
+                    channel = TriggerEventCard(outcome.EventId, def);
+                    how = channel == CardChannel.None
+                        ? "card=ALL_CHANNELS_FAILED talk="
+                          + ShowHeadTalk(FallbackHeadTalkText(def?.Title ?? ""), 4f)
+                        : "card=" + channel;
+                }
+                else
+                    how = "talk=" + ShowHeadTalk(def?.Dialogue ?? "");
             }
-            if (grant.GrantedItems > 0)
-                how += " granted=" + grant.GrantedItems;
+
+            // —— 发放（T18 防双发 + fix#1 气泡兜底）：
+            //    卡显示 → 物品/buff/属性/永久增益由原生 RewardSet 声明式结算（事件行 RewardSetId
+            //    结果阶段挂法（T19）、行内容按当前难度烘焙）；代码只跑 Op 系特殊惩罚（M1/M3/M4/H2/D2/D1 顶层——
+            //    RunsTopLevelOp；H3 顶层被 Choices 短路维持 T10 裁定）。
+            //    卡未显示（平淡静音气泡 / 全通道失败转气泡——NeedsBubbleGrant）→ 声明式没有载体
+            //    （卡不显示=原生不结算），RewardExecutor 保留代码路径照发全形状（Items/Buffs/Attrs/
+            //    PermBuffByTier/RandomPickOne；Op 系经 Grant 内 RunsTopLevelOp 分流照跑，不双跑）。
+            //    数量口径：Grant 从 RewardSpec 基准×p.RewardMult（ScaleCount 同烘焙公式 round 下限 1）
+            //    ——注入行烘焙量与此同源，不读注入行、不二次缩放；拒收挂账走 Task 8 旧链。
+            if (NeedsBubbleGrant(presentation, channel))
+            {
+                var context = "day=" + day + " event=" + outcome.EventId
+                    + (def != null ? "「" + def.Title + "」" : "") + " bubble";
+                var grant = RewardExecutor.Grant(def?.Reward, p, rand, context);
+                if (grant.Queued.Count > 0)
+                {
+                    // 挂账持久化：入队 spec=已缩放形状（补发 RewardMult=1 原样发），追加进 PendingRewards 重存
+                    next.PendingRewards.AddRange(grant.Queued);
+                    StateStore.Save(next, slotDir);
+                    how += " queued=" + grant.Queued.Count;
+                }
+                if (grant.GrantedItems > 0)
+                    how += " granted=" + grant.GrantedItems;
+            }
+            else if (def?.Reward is { RunsTopLevelOp: true })
+            {
+                var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, rand);
+                DsTrace.Write("grants", "day=" + day + " event=" + outcome.EventId
+                    + (def != null ? "「" + def.Title + "」" : "") + " op=" + def.Reward.Op + "[" + summary + "]");
+                how += " op=" + def.Reward.Op;
+            }
 
             DsTrace.Write("daily", "day=" + day + " kind=" + outcome.Kind + " event=" + outcome.EventId
                 + (def != null ? "「" + def.Title + "」" : "")

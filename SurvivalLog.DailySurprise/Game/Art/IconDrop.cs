@@ -7,9 +7,11 @@ namespace SurvivalLog.DailySurprise;
 
 /// <summary>配图落盘通道（Task 11，EndlessGuard ArrowTower.EnsureIconFile 同源模式的多图版）：
 /// 程序集 EmbeddedResource（csproj 通配 Art\*.webp，资源名=IconNaming.ResourcePrefix+文件名）
-/// → 写 <游戏根>\SurvivalLog_Data\StreamingAssets\WebUI\Res\Icon\ds_*.webp；表 Icon 字段的
-/// "../../Res/Icon/ds_xx.webp"（InjectorMapping.IconPrefix）按普通文件从该目录解析
-///（EndlessGuard wave8 ToolTable.html 实证通道）。
+/// → 写 <游戏根>\SurvivalLog_Data\StreamingAssets\WebUI\Res\Icon\ds_*.webp；表 Icon 字段（T18
+/// 原生约定 "Assets/RuntimeAssets/Texture/Icon/ds_xx"——InjectorMapping.IconFieldOf，无扩展名）
+/// 经 ResolveIconDir 剥前缀转 ../../Res/Icon/ds_xx，webui-core RES_IMG_EXTS 自动重试 .webp
+/// 从该目录命中（备选开关 UseLegacyIconPath=true 时为 "../../Res/Icon/ds_xx.webp" 面板相对
+/// 路径直填，同目录按普通文件解析——EndlessGuard wave8 ToolTable.html 实证通道）。
 /// 幂等（可重复调用）：目标已存在且字节数+SHA256 全等→跳过零写入；不一致→覆盖
 ///（升级换图：作者替换 Art\ 里的同名文件重新构建即热换）。
 /// 失败隔离：逐资源 try/catch；每资源结果+末尾汇总行写 trace\icons.txt（0 张也有一行

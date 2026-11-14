@@ -63,4 +63,32 @@ public sealed class TableInjectorSpecTests
             new[] { 2101, 2101, 2101, 2101, 1, 1, 1, 1, 1, 1 },
             RewardEncoding.ItemChangeOf(g1Event.Reward));
     }
+
+    // ———————————————— T18 数量烘焙（rewardMult 注入时定格） ————————————————
+
+    /// <summary>T18 奖励原生上卡：ItemChange 件数按 rewardMult 烘焙（RewardMath.ScaleCount
+    /// round(base×mult) AwayFromZero 下限 1）——行内容即最终发放量，原生 RewardSetManager
+    /// 结算不再二次缩放（attrRate/itemRate 原生默认 1）。</summary>
+    [Theory]
+    [InlineData(1.0, new[] { 2107, 2107, 2107, 2209, 2209 })]       // 基准：不缩放
+    [InlineData(2.0, new[] { 2107, 2107, 2107, 2107, 2107, 2107, 2209, 2209, 2209, 2209 })]   // ×2：3→6、2→4
+    [InlineData(0.5, new[] { 2107, 2107, 2209 })]                   // ×0.5：3→1.5→2（AwayFromZero）、2→1（下限 1）
+    [InlineData(0.1, new[] { 2107, 2209 })]                         // ×0.1 极端档：下限 1 件
+    public void RewardEncoding_ItemChangeOf_BakesCountByRewardMult(double mult, int[] want)
+    {
+        var spec = new RewardSpec
+        {
+            Items = new() { new ItemGain { ItemId = 2107, Count = 3 }, new ItemGain { ItemId = 2209, Count = 2 } },
+        };
+        Assert.Equal(want, RewardEncoding.ItemChangeOf(spec, mult));
+    }
+
+    /// <summary>ItemCost 不烘焙倍率（H3「算了」失去零件×10=固定代价，倍率只影响奖励侧）。</summary>
+    [Fact]
+    public void RewardEncoding_ItemCostOf_IgnoresRewardMult()
+    {
+        var spec = new RewardSpec { ItemCosts = new() { new ItemGain { ItemId = 20362, Count = 10 } } };
+        Assert.Equal(new[] { 20362, 20362, 20362, 20362, 20362, 20362, 20362, 20362, 20362, 20362 },
+            RewardEncoding.ItemCostOf(spec));   // 10 件恒定（无 mult 入参——编译期即锁死不缩放）
+    }
 }

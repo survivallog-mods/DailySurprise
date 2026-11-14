@@ -7,24 +7,28 @@ namespace SurvivalLog.DailySurprise;
 
 /// <summary>EnsureInjected 的结果：当前进程内本 mod 自注入行的在册行数（实际计数，非硬编码——
 /// green 返回时=全量：50 事件行（45 事件 + 5 选项子事件）/ 50 RewardSet（45 基础+5 选项）/
-/// 14 buff / 14 effect）。
+/// 5 RandomGroup（T18 随机池）/ 14 buff / 14 effect）。
 /// null（EnsureInjected 返回 null）≠ 空报告：null=表未就绪/未全绿（调用方下轮再试）。</summary>
 internal sealed class InjectionReport
 {
     public int Events;
     public int RewardSets;
+    public int RandomGroups;
     public int BuffRows;
     public int EffectRows;
 }
 
-/// <summary>四表全量注入器（Task 2 spike 形态的全量化，数据源=EventCatalog/BuffBlueprints，
+/// <summary>五表全量注入器（Task 2 spike 形态的全量化，数据源=EventCatalog/BuffBlueprints，
 /// 行内容由 <see cref="InjectorMapping"/> 纯函数产出，本类只做"字典→对象属性"搬运与克隆拷贝）：
 /// Config_Event 50 行（45 事件 + 5 选项子事件，Task 10）+ Config_RewardSet 50 行 +
-/// Config_Buff 14 行 + Config_Effect 14 行。
+/// Config_RandomGroup 5 行（T18 RandomPickOne 池）+ Config_Buff 14 行 + Config_Effect 14 行。
 /// 时机/幂等/哨兵照抄 EndlessGuard ArrowTower 定案模式：
 /// - Cm() 单例就绪 ≠ dict 就绪（2026-10-24 实锤），任一字典 null=装表中，下轮再试；
 /// - 哨兵=全量行在册 + 每表关键行形态探针（官方 ConfigManager.Initialize 重建字典后哨兵转红，
 ///   ticker 自动重放；全字段无条件拍平保证重放幂等）；
+/// - 烘焙指纹（T18 难度热更）：RewardSet/RandomGroup 行内容按注入时的 (tier, rewardMult) 定格
+///   （物品件数/PermBuff 变体）；cfg 难度或自定义奖励倍率变化 → 指纹失配 → 下轮 ticker 强制全量
+///   重放（全字段拍平重烘焙，E2/L3 变体随之更换）——无需 SettingChanged 订阅，绿态轮询自带；
 /// - 行级幂等：行在则复用对象、全字段无条件拍平（半途异常重试不被判重挡死）；
 /// - 全部 List 字段全新 Il2Cpp 实例逐元素填（官方消费方直读 .Count，null/共享实例有 NRE/Clear
 ///   连坐风险——ArrowTower 教训）。克隆行（buff/effect）=读源行属性逐项拷贝（列表亦逐元素新实例）
@@ -34,6 +38,7 @@ internal static class TableInjector
     // —— 本 mod 托管 Id 段（哨兵在册检查 + 报告计数共用；见 InjectorMapping 头注的编号方案）——
     private static readonly int[] EventIds = BuildEventIds();
     private static readonly int[] RewardSetIds = BuildRewardSetIds();
+    private static readonly int[] RandomGroupIds = BuildRandomGroupIds();
     private static readonly int[] BuffIds = BuildBuffIds();
     private static readonly int[] EffectIds = BuildEffectIds();
 
@@ -50,6 +55,14 @@ internal static class TableInjector
     private static int[] BuildRewardSetIds()
     {
         var all = InjectorMapping.AllRewardSets();
+        var ids = new int[all.Count];
+        for (var i = 0; i < ids.Length; i++) ids[i] = all[i].Id;
+        return ids;
+    }
+
+    private static int[] BuildRandomGroupIds()
+    {
+        var all = InjectorMapping.RandomGroupRows();
         var ids = new int[all.Count];
         for (var i = 0; i < ids.Length; i++) ids[i] = all[i].Id;
         return ids;
@@ -75,8 +88,25 @@ internal static class TableInjector
     private static bool _wasGreen;
     private static int _episode = 1;
 
-    /// <summary>ticker 每步入口：四表就绪且全量行在册（含形态探针）→ 返回报告；
-    /// 未就绪/注入后仍未全绿 → null（调用方下轮再试）。</summary>
+    // —— 烘焙指纹（T18）：上次全绿注入时的 (tier, rewardMult)。RewardSet/RandomGroup 行内容
+    //    按它定格；当前 cfg 算出的指纹不同（难度热更/自定义倍率改动）→ 判 stale 强制全量重放。
+    //    初始 (0,0)≠任何合法产出 → 首轮必注入。元组比较=值语义。 ——
+    private static (int Tier, double Mult) _bakedOn;
+
+    /// <summary>当前烘焙参数：cfg 实时读值（Tier 档名/旧数字串兼容解析、Custom 档倍率）经
+    /// DifficultyTable.Resolve 归一（非法值回退档 3）。读取异常防御回基准档 (3, 1.0)。</summary>
+    private static (int Tier, double Mult) CurrentBake()
+    {
+        try
+        {
+            var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
+            return (p.Tier, p.RewardMult);
+        }
+        catch { return (3, 1.0); }
+    }
+
+    /// <summary>ticker 每步入口：五表就绪且全量行在册（含形态探针）且烘焙参数未变 → 返回报告；
+    /// 未就绪/烘焙指纹失配/注入后仍未全绿 → 注入（或重注入）后复查，仍不绿 → null（调用方下轮再试）。</summary>
     internal static InjectionReport EnsureInjected()
     {
         try
@@ -85,18 +115,25 @@ internal static class TableInjector
             if (cm == null) return null;
             var evDict = cm._Config_Event_Dict;
             var rsDict = cm._Config_RewardSet_Dict;
+            var rgDict = cm._Config_RandomGroup_Dict;
             var buffDict = cm._Config_Buff_Dict;
             var effDict = cm._Config_Effect_Dict;
-            if (evDict == null || rsDict == null || buffDict == null || effDict == null)
+            if (evDict == null || rsDict == null || rgDict == null || buffDict == null || effDict == null)
                 return null;   // 装表中，下轮再试（不动 _wasGreen——空窗不算回合切换）
 
-            var green = SentinelsGreen(evDict, rsDict, buffDict, effDict);
-            if (!green && _wasGreen) _episode++;   // 上一轮绿这一轮红 = 官方重建，新一轮注入开始
+            var bake = CurrentBake();
+            var stale = bake != _bakedOn;   // 难度热更：已注入行是旧烘焙 → 强制重放（重烘焙数量/变体）
+            var green = !stale && SentinelsGreen(evDict, rsDict, rgDict, buffDict, effDict, bake);
+            if (!green && _wasGreen) _episode++;   // 上一轮绿这一轮红 = 官方重建或烘焙热更，新一轮注入开始
             _wasGreen = green;
-            if (green) return Report(evDict, rsDict, buffDict, effDict);
-            Inject(evDict, rsDict, buffDict, effDict, _episode);
-            return SentinelsGreen(evDict, rsDict, buffDict, effDict)
-                ? Report(evDict, rsDict, buffDict, effDict) : null;
+            if (green) return Report(evDict, rsDict, rgDict, buffDict, effDict);
+            Inject(evDict, rsDict, rgDict, buffDict, effDict, _episode, bake);
+            if (SentinelsGreen(evDict, rsDict, rgDict, buffDict, effDict, bake))
+            {
+                _bakedOn = bake;
+                return Report(evDict, rsDict, rgDict, buffDict, effDict);
+            }
+            return null;
         }
         catch (Exception e)
         {
@@ -109,31 +146,33 @@ internal static class TableInjector
     private static InjectionReport Report(
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Event> evDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_RewardSet> rsDict,
+        Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_RandomGroup> rgDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Buff> buffDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Effect> effDict)
     {
         var r = new InjectionReport();
         foreach (var id in EventIds) if (evDict.ContainsKey(id)) r.Events++;
         foreach (var id in RewardSetIds) if (rsDict.ContainsKey(id)) r.RewardSets++;
+        foreach (var id in RandomGroupIds) if (rgDict.ContainsKey(id)) r.RandomGroups++;
         foreach (var id in BuffIds) if (buffDict.ContainsKey(id)) r.BuffRows++;
         foreach (var id in EffectIds) if (effDict.ContainsKey(id)) r.EffectRows++;
         return r;
     }
 
     // —— 哨兵探针期望（fix#1：全部自 InjectorMapping/目录派生，禁止硬编码行 Id/载荷常量——
-    //    曾错把 FirstRewardSetId(99250) 当 G1 行探针，实际 99250=N1 空行、G1=99255，哨兵恒红）——
+    //    曾错把 FirstRewardSetId(99250) 当 G1 行探针，实际 99250=N1 空行、G1=99255，哨兵恒红）。
+    //    T18：RewardSet/RandomGroup 探针依赖烘焙参数（件数/变体随难度定格）→ 每次现算（见
+    //    SentinelsGreen 内 bake 形参）；无难度依赖的探针仍为 static readonly（启动一次派生）。 ——
     private static readonly EventDef ProbeG1 = FindEvent(EventCatalog.Ids.G1);
     private static readonly EventDef ProbeL1 = FindEvent(EventCatalog.Ids.L1);
     private static readonly Dictionary<string, object> ProbeG1EventRow = InjectorMapping.EventRow(ProbeG1);
     private static readonly int ProbeG1Type = (int)ProbeG1EventRow["Type"];
-    private static readonly int ProbeG1StartRs = (int)ProbeG1EventRow["StartRewardSetId"];   // =0（Task 8 裁定：奖励走代码路径）
+    private static readonly int ProbeG1RsWired = (int)ProbeG1EventRow["RewardSetId"];        // T19 结果阶段挂法：直发父行 RewardSetId=99255（StartRewardSetId=0）
     private static readonly int ProbeG1RsId = InjectorMapping.BaseRewardSetIdOf(ProbeG1);    // =99255（RewardSet 行编号不受裁定影响）
-    private static readonly Dictionary<string, object> ProbeG1RsRow =
-        InjectorMapping.RewardSetRow(ProbeG1.Reward, ProbeG1RsId);
-    private static readonly string ProbeG1RsSource = (string)ProbeG1RsRow["Source"];
-    private static readonly int ProbeG1RsItemCount = ((List<int>)ProbeG1RsRow["ItemChange"]).Count;
     private static readonly int ProbeL1Type = (int)InjectorMapping.EventRow(ProbeL1)["Type"];
     private static readonly int ProbeL1ChoseCount = ProbeL1.Reward.Choices.Count;
+    private static readonly EventDef ProbeR2 = FindEvent(EventCatalog.Ids.R2);               // RandomGroup 首池探针（99250）
+    private static readonly int ProbeR2GroupId = InjectorMapping.FirstRandomGroupId;
     // 子事件行探针（Task 10）：L1 首子事件（99245 食物层）——IsSon/RewardSetId 声明式接线形态；
     // 期望值派生自 InjectorMapping.SonEventRow（99245→选项行 99295 由 InjectorMappingTests 钉死）
     private static readonly SonEvent ProbeSon = EventCatalog.SonEvents[0];
@@ -153,24 +192,28 @@ internal static class TableInjector
     private static readonly float ProbeEffectMoraleAdd =
         Convert.ToSingle(InjectorMapping.BuffRows(ProbeBuff).Effect["BuffMoraleAdd"]);
 
-    /// <summary>哨兵复查：四表全量 Id 在册 + 每表关键行形态探针（期望值全部派生自 InjectorMapping，
+    /// <summary>哨兵复查：五表全量 Id 在册 + 每表关键行形态探针（期望值全部派生自 InjectorMapping，
     /// 探针数据源由 InjectorMappingTests 钉死：99250=N1 空行、99255=G1 十件——错位会在映射层测试暴露）。
+    /// bake=当前烘焙参数（RewardSet/RandomGroup 探针期望随难度现算——难度热更后旧行形态失配即红）。
     /// 读行字段可抛（interop 病态）→ 按缺行处理触发重放（幂等无害）。</summary>
     private static bool SentinelsGreen(
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Event> evDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_RewardSet> rsDict,
+        Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_RandomGroup> rgDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Buff> buffDict,
-        Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Effect> effDict)
+        Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Effect> effDict,
+        (int Tier, double Mult) bake)
     {
         try
         {
             foreach (var id in EventIds) if (!evDict.ContainsKey(id)) return false;
             foreach (var id in RewardSetIds) if (!rsDict.ContainsKey(id)) return false;
+            foreach (var id in RandomGroupIds) if (!rgDict.ContainsKey(id)) return false;
             foreach (var id in BuffIds) if (!buffDict.ContainsKey(id)) return false;
             foreach (var id in EffectIds) if (!effDict.ContainsKey(id)) return false;
 
             var g1 = evDict[ProbeG1.Id];
-            if (g1.Type != ProbeG1Type || g1.StartRewardSetId != ProbeG1StartRs) return false;
+            if (g1.Type != ProbeG1Type || g1.RewardSetId != ProbeG1RsWired) return false;
 
             var l1 = evDict[ProbeL1.Id];
             if (l1.Type != ProbeL1Type || l1.ChoseName_Local == null
@@ -182,9 +225,17 @@ internal static class TableInjector
             var rsGiveUp = rsDict[ProbeH3GiveUpRow.Id];   // 「算了」ItemCost 声明式扣件在册
             if (rsGiveUp.ItemCost == null || rsGiveUp.ItemCost.Count != ProbeH3GiveUpCostCount) return false;
 
+            // G1 RewardSet 行探针（期望随烘焙现算：件数随难度定格；Source 恒正式标记）
+            var g1RsRow = InjectorMapping.RewardSetRow(ProbeG1.Reward, ProbeG1RsId, bake.Tier, bake.Mult);
             var rsG1 = rsDict[ProbeG1RsId];
-            if (rsG1.Source != ProbeG1RsSource || rsG1.ItemChange == null
-                || rsG1.ItemChange.Count != ProbeG1RsItemCount) return false;
+            if (rsG1.Source != (string)g1RsRow["Source"] || rsG1.ItemChange == null
+                || rsG1.ItemChange.Count != ((List<int>)g1RsRow["ItemChange"]).Count) return false;
+
+            // RandomGroup 首池探针（R2=99250）：IdList 候选数随烘焙参数派生（池成员静态、CountList 动态）
+            var r2Row = InjectorMapping.RandomGroupRow(ProbeR2, ProbeR2GroupId, bake.Mult);
+            var rg = rgDict[ProbeR2GroupId];
+            if (rg.IdList == null || rg.IdList.Count != ((List<int>)r2Row["IdList"]).Count
+                || rg.GroupType != (int)r2Row["GroupType"]) return false;
 
             var bH1 = buffDict[ProbeBuffId];
             if (bH1.EffectConfigId != ProbeBuffEffectId) return false;
@@ -203,16 +254,19 @@ internal static class TableInjector
         throw new InvalidOperationException("EventCatalog 缺少事件 " + id);
     }
 
-    /// <summary>四表注入（分表 try/catch：一表失败不挡其余；行级失败留哨兵红、下轮重放）。
+    /// <summary>五表注入（分表 try/catch：一表失败不挡其余；行级失败留哨兵红、下轮重放）。
+    /// bake=本次注入的烘焙参数（RewardSet 件数/PermBuff 变体、RandomGroup CountList 按它定格；
+    /// EnsureInjected 绿态后记入 _bakedOn 指纹——难度热更时失配触发全量重放）。
     /// 完成后写 trace 汇总行（带 episode 回合号、WriteThrottled 节流——见 EnsureInjected 注）。</summary>
     private static void Inject(
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Event> evDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_RewardSet> rsDict,
+        Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_RandomGroup> rgDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Buff> buffDict,
         Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Effect> effDict,
-        int episode)
+        int episode, (int Tier, double Mult) bake)
     {
-        int evNew = 0, rsNew = 0, bfNew = 0, efNew = 0;
+        int evNew = 0, rsNew = 0, rgNew = 0, bfNew = 0, efNew = 0;
 
         try
         {
@@ -234,7 +288,7 @@ internal static class TableInjector
 
         try
         {
-            foreach (var (id, fields) in InjectorMapping.AllRewardSets())
+            foreach (var (id, fields) in InjectorMapping.AllRewardSets(bake.Tier, bake.Mult))
             {
                 var row = GetOrCreate(rsDict, id, out var created);
                 if (created) rsNew++;
@@ -242,6 +296,19 @@ internal static class TableInjector
             }
         }
         catch (Exception ex) { DsTrace.WriteThrottled("inject", "Config_RewardSet 注入中断: " + ex.Message); }
+
+        try
+        {
+            // RandomGroup 池行（T18）：RandomPickOne 的候选与烘焙件数（全字段拍平幂等——
+            // 难度热更重放即换 CountList）
+            foreach (var (id, fields) in InjectorMapping.RandomGroupRows(bake.Mult))
+            {
+                var row = GetOrCreate(rgDict, id, out var created);
+                if (created) rgNew++;
+                ApplyDict(row, fields);
+            }
+        }
+        catch (Exception ex) { DsTrace.WriteThrottled("inject", "Config_RandomGroup 注入中断: " + ex.Message); }
 
         try
         {
@@ -272,12 +339,14 @@ internal static class TableInjector
         }
         catch (Exception ex) { DsTrace.WriteThrottled("inject", "Config_Buff/Config_Effect 注入中断: " + ex.Message); }
 
-        var report = Report(evDict, rsDict, buffDict, effDict);
+        var report = Report(evDict, rsDict, rgDict, buffDict, effDict);
         DsTrace.WriteThrottled("inject", "[episode " + episode + "] 全量注入: events=" + report.Events + "/" + EventIds.Length
             + " rewardSets=" + report.RewardSets + "/" + RewardSetIds.Length
+            + " randomGroups=" + report.RandomGroups + "/" + RandomGroupIds.Length
             + " buffs=" + report.BuffRows + "/" + BuffIds.Length
             + " effects=" + report.EffectRows + "/" + EffectIds.Length
-            + "（本趟新建 ev" + evNew + "/rs" + rsNew + "/bf" + bfNew + "/ef" + efNew + "，其余拍平）");
+            + "（烘焙 tier=" + bake.Tier + " mult=" + bake.Mult.ToString("0.###")
+            + "，本趟新建 ev" + evNew + "/rs" + rsNew + "/rg" + rgNew + "/bf" + bfNew + "/ef" + efNew + "，其余拍平）");
     }
 
     /// <summary>行级幂等取行：在则复用（created=false），缺/null 则新建入册（interop 字典无共同
@@ -297,6 +366,16 @@ internal static class TableInjector
     {
         if (dict.TryGetValue(id, out var row) && row != null) { created = false; return row; }
         row = new GameCore.HotUpdate.Config_RewardSet();
+        dict[id] = row;
+        created = true;
+        return row;
+    }
+
+    private static GameCore.HotUpdate.Config_RandomGroup GetOrCreate(
+        Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_RandomGroup> dict, int id, out bool created)
+    {
+        if (dict.TryGetValue(id, out var row) && row != null) { created = false; return row; }
+        row = new GameCore.HotUpdate.Config_RandomGroup();
         dict[id] = row;
         created = true;
         return row;

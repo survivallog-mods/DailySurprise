@@ -59,6 +59,22 @@ public sealed class DailyFlowLogicTests
         Assert.Equal(want, DailyFlow.Presentation(kind, showPlainPopup));
     }
 
+    /// <summary>气泡路径代码发奖判定（T18 fix#1 表驱动）：事件卡未显示（平淡静音气泡，或
+    /// 事件卡全通道失败转气泡兜底）→ 声明式奖励没有载体（卡不显示=原生不结算），代码路径照发；
+    /// 卡通道成功（含选项卡）→ 原生声明式结算，代码停发（T18 防双发口径不变）。
+    /// 落空（EventId=0，def=null）：Grant(null)=空操作，判定值不产生副作用（按气泡侧取 true）。</summary>
+    [Theory]
+    [InlineData(PresentationKind.HeadTalk, CardChannel.C1, true)]    // 平淡静音气泡（通道未尝试）
+    [InlineData(PresentationKind.HeadTalk, CardChannel.C4, true)]    // 平淡静音气泡（通道参数无关）
+    [InlineData(PresentationKind.EventCard, CardChannel.None, true)] // 事件卡全通道失败 → 气泡兜底
+    [InlineData(PresentationKind.EventCard, CardChannel.C1, false)]  // 卡成功：原生结算（C2/C3/C4/Heal 同）
+    [InlineData(PresentationKind.EventCard, CardChannel.Heal, false)]
+    [InlineData(PresentationKind.EventCard, CardChannel.C4, false)]
+    public void NeedsBubbleGrant_TableDriven(PresentationKind presentation, CardChannel channel, bool want)
+    {
+        Assert.Equal(want, DailyFlow.NeedsBubbleGrant(presentation, channel));
+    }
+
     // —— NextState：记账规则 ——
 
     [Fact]

@@ -13,7 +13,11 @@ internal sealed class GrantResult
     public List<PendingReward> Queued = new();
 }
 
-/// <summary>奖励执行器（Task 8；Controller 裁定：事件行 StartRewardSetId=0，全部奖励统一代码路径）。
+/// <summary>奖励执行器（Task 8 形态保留）。**调用面（T18 + fix#1）**：事件卡显示路径不再调用
+/// 物品/buff/属性路径（原生 RewardSet 声明式结算，DailyFlow/SpikeForce 只跑 Op 系→PunishmentOps）；
+/// 气泡路径（平淡静音 / 事件卡全通道失败——NeedsBubbleGrant）恢复全量调用本类 Grant——显示走
+/// 气泡、奖励照发（数量=RewardSpec 基准×当前难度 RewardMult，ScaleCount 与注入行烘焙同公式，
+/// 不读注入行、不二次缩放），拒收挂账（PendingFlusher 补发）。
 /// 消费 RewardSpec 全形状（Items/Buffs/Attrs/PermBuffByTier/RandomPickOne）；Op 系（耐久/腐坏/偷窃/
 /// 永久属性）Task 9 起分流到 <see cref="PunishmentOps.Apply"/>（Summary 进 grants 行 + punish.txt）；
 /// Task 10 起选项事件（Choices 非空）顶层 Op 短路（RunsTopLevelOp）——选项效果由子事件

@@ -6,15 +6,17 @@ using Xunit;
 
 namespace SurvivalLog.DailySurprise.Tests;
 
-/// <summary>InjectorMapping 纯函数契约测试（Task 6 Step 1，先写后实现）。
+/// <summary>InjectorMapping 纯函数契约测试（Task 6 Step 1，先写后实现；T18 奖励原生上卡改写）。
 /// 映射层=EventDef/RewardSpec/BuffBlueprint → 表行字段字典（键=Config_* 属性名，值=int/double/
 /// string/List&lt;int&gt;/List&lt;string&gt;）；IL2CPP 写入层（Game/TableInjector，测试上下文不可见）
 /// 只做"字典→对象属性"搬运。字段名与形态权威=gamekb 2026-11-05_26454866 dump.cs：
 /// Config_Event 67 属性（35790 起）、Config_RewardSet 44 属性（46003 起，Attri 编码=平行
 /// List&lt;int&gt;，原生行 6011/6013 实证）、Config_Buff 24 属性（28302 起）、Config_Effect
-/// （33687 起）。ID 段：RewardSet 基础行=99250+目录序（99250..99294）、选项行 99295..99299
+/// （33687 起）、Config_RandomGroup 7 属性（45795 起，2026-11-12_26615062 取证）。
+/// ID 段：RewardSet 基础行=99250+目录序（99250..99294）、选项行 99295..99299
 /// （L1×3+H3×2，Task 10 起声明式发奖）、子事件行 99245..99249（事件段 99200..99244 顺延）、
-/// Effect 行=99290+蓝图序（99290..99303，Effect 独立表与 buff id 不冲突）。</summary>
+/// Effect 行=99290+蓝图序（99290..99303，Effect 独立表与 buff id 不冲突）、
+/// RandomGroup 行=99250+池序（99250..99254，独立表段，T18）。</summary>
 public sealed class InjectorMappingTests
 {
     private static EventDef ById(int id) => Assert.Single(EventCatalog.Events, e => e.Id == id);
@@ -42,14 +44,17 @@ public sealed class InjectorMappingTests
         Assert.Equal("天上掉下来一个箱子，降落伞没打开，但箱子的质量出乎意料。", row["EventDes"]);
         Assert.Equal("天上掉下来一个箱子，降落伞没打开，但箱子的质量出乎意料。", row["EventDes_Local"]);
 
-        // StartRewardSetId=0（Task 8 Controller 裁定：防空双发——原生 1760 行同为 0，弹窗不受影响；
-        // 全部奖励统一走 RewardExecutor 代码路径）；RewardSetId 亦 0（Task 2 起归因单一）
+        // T19 结果阶段挂法：直发父行 RewardSetId=基础 RewardSet 行 Id（原生 Result 型（Type=2）1260 行
+        // 零 StartRewardSetId、831 行挂 RewardSetId——直发型（Type=2/PopUpType=1/非子）327 行同构
+        // （10200=6049 等）；Start 奖励机制原生全套 Type==3 门=Task 型专属）；StartRewardSetId=0
+        // （T18 的 Start 挂法是原生零先例形态且实机强制触发链 NRE，废弃）
         Assert.Equal(0, row["StartRewardSetId"]);
-        Assert.Equal(0, row["RewardSetId"]);
+        Assert.Equal(99255, row["RewardSetId"]);
 
-        // Icon=EventDef.Icon 相对路径（Task 11 配图生产线的落盘约定，规格 v2 webp）
-        Assert.Equal("../../Res/Icon/ds_g1.webp", row["Icon"]);
-        Assert.Equal("../../Res/Icon/ds_g1.webp", row["IconEnd"]);
+        // Icon=原生约定格式（T18）：ResolveIconDir 剥 Assets/RuntimeAssets/Texture/ 前缀转
+        // ../../Res/Icon/ds_g1，webui-core RES_IMG_EXTS 自动重试 .webp 命中落盘文件；无扩展名
+        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_g1", row["Icon"]);
+        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_g1", row["IconEnd"]);
 
         Assert.Equal("我知道了", row["OKDes_Local"]);
     }
@@ -73,7 +78,7 @@ public sealed class InjectorMappingTests
         // Task 10 接线（原生 103/10010 形态）：ChoseID=子事件 Id（与 Choices 同序）、Default=末选项子事件
         Assert.Equal(new List<int> { 99245, 99246, 99247 }, Assert.IsType<List<int>>(row["ChoseID"]));
         Assert.Equal(99247, row["Default"]);
-        // 顶层不发奖励（各选项子事件 RewardSetId 声明式发奖）；StartRewardSetId=0（Task 8 裁定口径不变）
+        // 顶层不发奖励（各选项子事件 RewardSetId 声明式发奖）；选项父行 StartRewardSetId=0（T18 口径）
         Assert.Equal(0, row["StartRewardSetId"]);
         Assert.Equal(0, row["RewardSetId"]);
     }
@@ -127,7 +132,9 @@ public sealed class InjectorMappingTests
         foreach (var e in EventCatalog.Events)
         {
             var row = InjectorMapping.EventRow(e);
-            Assert.Equal("../../Res/Icon/" + e.Icon, (string)row["Icon"]);
+            // T18 原生约定：IconPrefix+裸名去扩展名（IconFieldOf 单一合成点）
+            Assert.Equal(InjectorMapping.IconFieldOf(e.Icon), (string)row["Icon"]);
+            Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_" + e.Key, (string)row["Icon"]);   // 无 .webp 后缀
         }
     }
 
@@ -141,18 +148,70 @@ public sealed class InjectorMappingTests
         Assert.Equal(99294, InjectorMapping.BaseRewardSetIdOf(ById(EventCatalog.Ids.D3)));
     }
 
-    /// <summary>Task 8 Controller 裁定钉：全部 45 事件行 StartRewardSetId=0——奖励统一走
-    /// RewardExecutor 代码路径（防原生直发与代码路径双发）；RewardSet 行本身保留（展示/备查）。</summary>
+    /// <summary>T19 奖励结果阶段挂载钉（全 45 行派生）：直发父行 RewardSetId=基础 RewardSet 行 Id
+    /// （原生 Result 型（Type=2）831 行挂 RewardSetId 同构——直发型 327 行（10200=6049 等）；
+    /// FSM DoResult 结算+SetResultUI 清单+确认发放）；StartRewardSetId 恒 0（原生 Result 型 1260 行
+    /// 零 Start 挂载、Start 机制 Type==3 门=Task 型专属；T18 的 Type=2 挂 Start 零先例且实机
+    /// 强制触发链 NRE，废弃）；选项父行 RewardSetId=0（顶层不发，选项效果归子事件）；
+    /// ExpiredRewardSetId 恒 0。</summary>
     [Fact]
-    public void EventRow_AllStartRewardSetIdsZero_CodePathOnly()
+    public void EventRow_DirectEvents_RewardSetIdWiredToBaseRow()
     {
         foreach (var e in EventCatalog.Events)
         {
             var row = InjectorMapping.EventRow(e);
+            var isChoice = e.Reward is { Choices.Count: > 0 };
             Assert.Equal(0, row["StartRewardSetId"]);
-            Assert.Equal(0, row["RewardSetId"]);
+            Assert.Equal(isChoice ? 0 : InjectorMapping.BaseRewardSetIdOf(e), row["RewardSetId"]);
             Assert.Equal(0, row["ExpiredRewardSetId"]);
         }
+    }
+
+    /// <summary>T19 NRE 防线（表驱动，gamekb 2026-11-12_26615062 dump 属性集核对）：全 50 Event 行
+    /// （45 父+5 子）+ 50 RewardSet 行 + 5 RandomGroup 行的所有 List 字段必须非 null——IL2CPP new
+    /// 出的表行 List 字段默认 null，原生 CreateDynamicEventArgs/AddResults/SetResultUI/ExecuteRewardSet
+    /// 对 null 列表迭代即 NRE（T18 实机 99205 DynamicEventManager NRE 复盘：T17 同坑三列表非空
+    /// 初始化后即通，本测试把该防线钉到全部注入表行）。键集=dump 可写属性中的 List 字段全集
+    /// （Config_Event 10 / Config_RewardSet 30 / Config_RandomGroup 3），与键集拍平测试互证无漏键。</summary>
+    [Fact]
+    public void AllRows_EveryListFieldNonNull_FiftyEventFiftyRewardSetFiveGroupRows()
+    {
+        var eventListKeys = new HashSet<string>   // Config_Event 10 个 List 字段（dump.cs:35730 起）
+        {
+            "PlayerSelectId", "FurnitureID", "IconRole", "ChoseName", "ChoseName_Local", "ChoseID",
+            "ActionRequire", "ActionTime", "ItemRequire", "ItemTime",
+        };
+        var rewardListKeys = new HashSet<string>  // Config_RewardSet 30 个 List 字段（dump.cs:46081 起）
+        {
+            "AttriKeyChange", "AttriValueChange", "ItemChange", "ItemPackage", "ItemCost",
+            "ClearFurnitureBag", "FurniturelD", "FurnitureHP", "BuffTargetType", "BuffTargetID",
+            "AddBuff", "DelBuff", "ChangeStatus", "AddTag", "DelTag", "ForbidTag", "ForbidTime",
+            "AddSymbol", "DelSymbol", "UnlockSystem", "ShowProductionList", "ShowRecipeList",
+            "UnlockProductionCraft", "UnlockCookingCraft", "ActiveEvent", "ActiveStory",
+            "ShowGuidanceFurnitureID", "HideGuidanceFurnitureID", "MetNpcIds", "RemoveEvent",
+        };
+        var groupListKeys = new HashSet<string>   // Config_RandomGroup 3 个 List 字段（dump.cs:45795 起）
+        {
+            "IdList", "CountList", "DiscoverLvList",
+        };
+
+        foreach (var e in EventCatalog.Events)
+            AssertListFields(InjectorMapping.EventRow(e), eventListKeys, "EventRow " + e.Key);
+        foreach (var s in EventCatalog.SonEvents)
+            AssertListFields(InjectorMapping.SonEventRow(s), eventListKeys, "SonEventRow " + s.Id);
+        foreach (var (id, row) in InjectorMapping.AllRewardSets())
+            AssertListFields(row, rewardListKeys, "RewardSetRow " + id);
+        foreach (var (id, row) in InjectorMapping.RandomGroupRows())
+            AssertListFields(row, groupListKeys, "RandomGroupRow " + id);
+    }
+
+    /// <summary>逐键断言：行字典必含该 List 字段且值非 null（TableInjector 按字典逐键写全新
+    /// Il2Cpp List——映射层漏键/漏值=注入行该字段停留 null=原生迭代 NRE）。</summary>
+    private static void AssertListFields(Dictionary<string, object> row, HashSet<string> listKeys, string what)
+    {
+        foreach (var key in listKeys)
+            Assert.True(row.ContainsKey(key) && row[key] is System.Collections.IList,
+                what + "." + key + " 缺失或值非列表（null 列表=原生迭代 NRE）");
     }
 
     // ———————————————— 子事件（Task 10 接线）——————————————
@@ -204,11 +263,12 @@ public sealed class InjectorMappingTests
         Assert.Equal(EventCatalog.SonEvents[0].Line, (string)first["EventDes"]);
         Assert.Equal(EventCatalog.SonEvents[0].Line, (string)first["EventDesTaskEnd"]);
 
-        // RewardSetId→选项行 99295（声明式发奖）；条件门清零（Task 2 定案）；图沿用父事件图
+        // RewardSetId→选项行 99295（声明式发奖）；条件门清零（Task 2 定案）；图沿用父事件图（T18 新格式）
         Assert.Equal(99295, first["RewardSetId"]);
         Assert.Equal(0, first["StartRewardSetId"]);
         Assert.Equal(0, first["ConditionSetId"]);
-        Assert.Equal("../../Res/Icon/" + ById(EventCatalog.Ids.L1).Icon, (string)first["Icon"]);
+        Assert.Equal(InjectorMapping.IconFieldOf(ById(EventCatalog.Ids.L1).Icon), (string)first["Icon"]);
+        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_l1", (string)first["Icon"]);
 
         // H3 两子事件：99248 追→99298、99249 算了→99299
         Assert.Equal(99298, InjectorMapping.SonEventRow(EventCatalog.SonEvents[3])["RewardSetId"]);
@@ -263,8 +323,29 @@ public sealed class InjectorMappingTests
         Assert.Equal(InjectorMapping.SourceTag, row.Row["Source"]);
         Assert.Equal(new List<int> { 2101, 2101, 2101, 2101, 1, 1, 1, 1, 1, 1 },
             Assert.IsType<List<int>>(row.Row["ItemChange"]));
-        // 口径：Buffs 不进 RewardSet（倍率缩放走 Task 8 代码路径）
+        // G1 无 buff 声明：AddBuff 空（有 Buffs 的事件走 AddBuff 声明式，见 G4 用例）
         Assert.Empty(Assert.IsType<List<int>>(row.Row["AddBuff"]));
+    }
+
+    /// <summary>T18 数量烘焙：rewardMult 在注入时定格进 ItemChange（round(base×mult) 下限 1，
+    /// RewardMath.ScaleCount 同语义）——行内容即最终发放量，原生结算不再二次缩放。</summary>
+    [Theory]
+    [InlineData(2.0, new[] { 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 })]   // 档1 ×2：饼干×8、糖×12
+    [InlineData(0.75, new[] { 2101, 2101, 2101, 1, 1, 1, 1, 1 })]                                                     // 档4 ×0.75：×3、×4.5→5（AwayFromZero）
+    public void RewardSetsOf_G1_BakesRewardMultiplierIntoItemChange(double mult, int[] want)
+    {
+        var row = Assert.Single(InjectorMapping.RewardSetsOf(ById(EventCatalog.Ids.G1), rewardMult: mult));
+        Assert.Equal(want, Assert.IsType<List<int>>(row.Row["ItemChange"]));
+    }
+
+    /// <summary>L1 选项行同样烘焙（倍率缩放不因选项卡路径缺席）。</summary>
+    [Fact]
+    public void RewardSetsOf_L1OptionRows_BakeRewardMultiplier()
+    {
+        var rows = InjectorMapping.RewardSetsOf(ById(EventCatalog.Ids.L1), rewardMult: 2.0).ToList();
+        // 食物层 99295：饼干×8→16、食品大包裹×2→4
+        Assert.Equal(new List<int> { 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 2101, 11003, 11003, 11003, 11003 },
+            Assert.IsType<List<int>>(rows[1].Row["ItemChange"]));
     }
 
     /// <summary>哨兵 RewardSet 探针数据源回归钉（fix#1）：TableInjector 的探针期望全部派生自本映射，
@@ -287,25 +368,112 @@ public sealed class InjectorMappingTests
         Assert.Equal(n1.Id, InjectorMapping.BaseRewardSetIdOf(ById(EventCatalog.Ids.N1)));
     }
 
+    /// <summary>T18 buff 声明式：G4=咖啡×4+精神振奋(11004)——ItemChange 承载物品（烘焙件数）、
+    /// AddBuff+BuffTargetType/BuffTargetID=1/0 配对承载 buff（原生行 6014/6106 同构）。</summary>
     [Fact]
-    public void RewardSetsOf_G4_ItemsCarriedButBuffsLeftToCodePath()
+    public void RewardSetsOf_G4_ItemsAndBuffsBothDeclarative()
     {
-        // G4=咖啡×4+精神振奋(11004)：ItemChange 只承载物品，buff 由代码路径发放
         var g4 = Assert.Single(RowsOf(EventCatalog.Ids.G4));
         Assert.Equal(new List<int> { 7, 7, 7, 7 }, Assert.IsType<List<int>>(g4.Row["ItemChange"]));
-        Assert.Empty(Assert.IsType<List<int>>(g4.Row["AddBuff"]));
+        Assert.Equal(new List<int> { 11004 }, Assert.IsType<List<int>>(g4.Row["AddBuff"]));
+        Assert.Equal(new List<int> { 1 }, Assert.IsType<List<int>>(g4.Row["BuffTargetType"]));
+        Assert.Equal(new List<int> { 0 }, Assert.IsType<List<int>>(g4.Row["BuffTargetID"]));
     }
 
+    /// <summary>T18 RandomPickOne 声明式：R2/E1/E3/E4/L2 的随机×1 由 Config_RandomGroup 承载——
+    /// RewardSet 行 ItemChange 留空 + RandomGroupId=组行 Id + RandomGroupCount=1（抽 1 条目）；
+    /// Source=正式标记（DS_RandomByCode 旧代码路径标记作废）。</summary>
     [Fact]
-    public void RewardSetsOf_RandomPickOneEvents_LeaveRowEmptyWithCodeMarker()
+    public void RewardSetsOf_RandomPickOneEvents_DeclareRandomGroupInstead()
     {
-        // 口径（Task 6 brief）：R2/E1/E3/E4/L2 的随机×1 不在 RewardSet 里解——
-        // 行留空 + Source=DS_RandomByCode 标记，随机由 Task 8 代码路径解
-        foreach (var id in new[] { EventCatalog.Ids.R2, EventCatalog.Ids.E1, EventCatalog.Ids.E3, EventCatalog.Ids.E4, EventCatalog.Ids.L2 })
+        var wantGroups = new Dictionary<int, int>   // 事件 → 组行 Id（R2/E1/E3/E4/L2 目录序 99250..99254）
+        {
+            [EventCatalog.Ids.R2] = 99250,
+            [EventCatalog.Ids.E1] = 99251,
+            [EventCatalog.Ids.E3] = 99252,
+            [EventCatalog.Ids.E4] = 99253,
+            [EventCatalog.Ids.L2] = 99254,
+        };
+        foreach (var (id, groupId) in wantGroups)
         {
             var row = Assert.Single(RowsOf(id));
             Assert.Empty(Assert.IsType<List<int>>(row.Row["ItemChange"]));
-            Assert.Equal(InjectorMapping.RandomByCodeTag, row.Row["Source"]);
+            Assert.Equal(groupId, row.Row["RandomGroupId"]);
+            Assert.Equal(1, row.Row["RandomGroupCount"]);
+            Assert.Equal(InjectorMapping.SourceTag, row.Row["Source"]);
+            Assert.Equal(groupId, InjectorMapping.RandomGroupIdOf(ById(id)));   // 池序走查同源
+        }
+        // 非池事件=0（无组引用）
+        Assert.Equal(0, InjectorMapping.RandomGroupIdOf(ById(EventCatalog.Ids.G1)));
+    }
+
+    /// <summary>RandomGroup 组行编码（T18，schema/原生行取证 dump.cs:45795、tables 行 106/107/220/7001）：
+    /// 7 可写属性全拍平；GroupType=1 物品池；IdList=候选 itemId（Count=1 候选各一条，无权重重复）；
+    /// CountList=平行每 id 烘焙件数（rewardMult 定格，候选基准 1 件——与旧代码路径
+    /// "PickRandomOne 选中一条再 ScaleCount" 等价）；DiscoverLvList=空（无探索门槛）。</summary>
+    [Fact]
+    public void RandomGroupRows_FivePools_NativeSchemaAndBakedCounts()
+    {
+        var rows = InjectorMapping.RandomGroupRows().ToList();
+        Assert.Equal(5, rows.Count);
+        Assert.Equal(Enumerable.Range(99250, 5), rows.Select(r => r.Id));   // R2/E1/E3/E4/L2 目录序
+
+        // R2 家电下乡池 99250：洗衣机/微波炉/电视机包裹
+        var r2 = rows[0].Row;
+        Assert.Equal(new List<int> { 14057, 14059, 14062 }, Assert.IsType<List<int>>(r2["IdList"]));
+        Assert.Equal(new List<int> { 1, 1, 1 }, Assert.IsType<List<int>>(r2["CountList"]));
+        Assert.Equal(1, r2["GroupType"]);
+        Assert.Empty(Assert.IsType<List<int>>(r2["DiscoverLvList"]));
+        Assert.Equal("喜从天降·家电下乡随机池", r2["RandomGroupName"]);
+        Assert.Equal(r2["RandomGroupName"], r2["RandomGroupName_Local"]);   // 中文直写键（GetLocalText miss 透传惯例）
+
+        // 7 键全拍平（dump.cs Config_RandomGroup 可写属性集）
+        Assert.Equal(new HashSet<string> { "ID", "RandomGroupName", "RandomGroupName_Local",
+            "GroupType", "IdList", "CountList", "DiscoverLvList" }, rows[0].Row.Keys.ToHashSet());
+
+        // E1 手稿池 99251 四候选；倍率烘焙：×2 → CountList 全 2（抽 1 条目得 2 件）
+        var e1 = Assert.Single(InjectorMapping.RandomGroupRows(rewardMult: 2.0), r => r.Id == 99251).Row;
+        Assert.Equal(new List<int> { 3034, 3035, 3036, 3037 }, Assert.IsType<List<int>>(e1["IdList"]));
+        Assert.Equal(new List<int> { 2, 2, 2, 2 }, Assert.IsType<List<int>>(e1["CountList"]));
+    }
+
+    /// <summary>PermBuffByTier 注入时烘焙（T18）：E2/L3 的命运眷顾变体按 tier/mult 定格进 AddBuff
+    /// （RewardMath.PickPermBuff 同源）——热更换档重注入即换变体；预设档 1~5=同号 FortuneIds。</summary>
+    [Theory]
+    [InlineData(EventCatalog.Ids.E2, 1, 99285)]
+    [InlineData(EventCatalog.Ids.E2, 3, 99287)]
+    [InlineData(EventCatalog.Ids.L3, 5, 99289)]
+    public void RewardSetsOf_PermBuffByTier_BakesVariantByTier(int eventId, int tier, int wantBuffId)
+    {
+        var row = Assert.Single(InjectorMapping.RewardSetsOf(ById(eventId), tier: tier));
+        var addBuff = Assert.IsType<List<int>>(row.Row["AddBuff"]);
+        Assert.Equal(new List<int> { wantBuffId }, addBuff);   // E2/L3 Buffs 本体为空，仅烘焙变体
+        // buff 配对目标数组同长（6014/6106 配对口径）
+        Assert.Equal(addBuff.Count, Assert.IsType<List<int>>(row.Row["BuffTargetType"]).Count);
+    }
+
+    /// <summary>声明式覆盖（T18 防双发判定的数据面）：45 事件里每个非 Op 载荷（Items/Buffs/Attrs/
+    /// PermBuffByTier）必须由 RewardSet/RandomGroup 行承载——行承载=原生结算=代码路径停发；
+    /// Op 系（耐久/腐坏/偷窃/永久属性）不承载（RunsTopLevelOp 代码路径保留，见下一用例）。</summary>
+    [Fact]
+    public void DeclarativeCoverage_AllNonOpPayloadsEncodedInRows()
+    {
+        foreach (var e in EventCatalog.Events)
+        {
+            if (e.Reward is { Choices.Count: > 0 }) continue;   // 选项事件：载荷在选项行（L1/H3 用例已钉）
+            var row = Assert.Single(InjectorMapping.RewardSetsOf(e)).Row;
+            var addBuff = Assert.IsType<List<int>>(row["AddBuff"]);
+            if (e.Reward.Items.Count > 0 && !e.Reward.RandomPickOne)
+                Assert.NotEmpty(Assert.IsType<List<int>>(row["ItemChange"]));
+            if (e.Reward.RandomPickOne)
+                Assert.NotEqual(0, row["RandomGroupId"]);       // 池事件必挂组行
+            if (e.Reward.Buffs.Count > 0 || e.Reward.PermBuffByTier)
+                Assert.NotEmpty(addBuff);
+            if (e.Reward.Attrs.Count > 0)
+            {
+                Assert.NotEmpty(Assert.IsType<List<int>>(row["AttriKeyChange"]));
+                Assert.NotEmpty(Assert.IsType<List<int>>(row["AttriValueChange"]));
+            }
         }
     }
 
@@ -376,18 +544,25 @@ public sealed class InjectorMappingTests
         Assert.Equal(InjectorMapping.SourceTag, giveUp["Source"]);
     }
 
-    /// <summary>基础行口径回归钉：非选项行（含带 Buffs 的 G4）仍走代码路径——AddBuff/ItemCost 不承载
-    /// （Task 8 Controller 裁定不变；声明式仅选项行启用）。</summary>
+    /// <summary>基础行口径回归钉（T18 语义）：基础行 AddBuff 声明式承载（buff 类全上卡）；
+    /// ItemCost 仍仅选项行承载（基础行的扣减归 Op 系代码路径）；Op 系载荷（StealParts）
+    /// 从不进 RewardSet（RewardSetManager 无对应声明式执行器）。</summary>
     [Fact]
-    public void RewardSetRow_BaseRowsStayCodePath_DeclarativeOnlyForOptions()
+    public void RewardSetRow_ItemCostOnlyForOptions_OpNeverEncoded()
     {
         var g4 = Assert.Single(RowsOf(EventCatalog.Ids.G4));
-        Assert.Empty(Assert.IsType<List<int>>(g4.Row["AddBuff"]));
+        Assert.Equal(new List<int> { 11004 }, Assert.IsType<List<int>>(g4.Row["AddBuff"]));
         Assert.Empty(Assert.IsType<List<int>>(g4.Row["ItemCost"]));
 
-        // 显式 declarative=false 的 H3 基础行：Op 系载荷（StealParts）从不进 RewardSet
+        // H3 基础行：StealParts 顶层 Op 不承载（父级被 Choices 短路、算了线=子事件 ItemCost）
         var h3Base = RowsOf(EventCatalog.Ids.H3)[0];
         Assert.Empty(Assert.IsType<List<int>>(h3Base.Row["ItemCost"]));
+        Assert.Empty(Assert.IsType<List<int>>(h3Base.Row["ItemChange"]));
+
+        // Op 系事件（M1 耐久）基础行全载荷空——惩罚执行归 PunishmentOps 代码路径
+        var m1 = Assert.Single(RowsOf(EventCatalog.Ids.M1));
+        Assert.Empty(Assert.IsType<List<int>>(m1.Row["ItemChange"]));
+        Assert.Empty(Assert.IsType<List<int>>(m1.Row["AddBuff"]));
     }
 
     [Fact]

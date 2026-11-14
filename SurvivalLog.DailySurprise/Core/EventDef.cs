@@ -52,10 +52,11 @@ public sealed class SonEvent
     public string Line;
 }
 
-/// <summary>事件奖励声明（注入 Config_RewardSet 行 + 代码路径特效）。
-/// PermBuffByTier=true 表示 Buffs 不固定、按档位/倍率在运行时选变体（Task 8 VariantMath）；
+/// <summary>事件奖励声明（T18 起全载荷注入 Config_RewardSet/Config_RandomGroup 行，由原生
+/// RewardSetManager 声明式结算；仅 Op 系特效保留代码路径——PunishmentOps）。
+/// PermBuffByTier=true 表示 Buffs 不固定、按档位/倍率选变体（注入时 RewardMath.PickPermBuff 烘焙）；
 /// RandomPickOne=true 表示 Items 是候选池、只随机发放 1 件（spec §8 R2/E1/E3/E4/L2 的「随机×1」，
-/// 与 PermBuffByTier 同款"数据声明 + 执行方解释"分工，Task 8 RewardExecutor 消费）；
+/// T18 起由 Config_RandomGroup 组行声明式承载，注入时件数按倍率烘焙进 CountList）；
 /// ItemCosts=声明式扣件（Config_RewardSet.ItemCost，选项行专用——H3「算了」失去零件×10，
 /// Task 10；基础行不承载，代码路径扣减仍归 Op 系）。</summary>
 public sealed class RewardSpec
@@ -94,24 +95,28 @@ public sealed class EventDef
 /// <summary>RewardSpec → Config_RewardSet.ItemChange 的编码规则（纯逻辑，Game/TableInjector 消费）：
 /// 原生表语义= itemId 逐次重复出现表件数（非 [id,count] 对）——gamekb Config_RewardSet 行 6420
 /// 实证（ItemChange=[2107,2107,2107,2209,2209,...]=3×2107+2×2209+…）。Count&lt;=0 不展开。
-/// 注：Items 若是 RandomPickOne 候选池（spec §8「随机×1」），展开结果仅供直发行——
-/// 随机择一语义由 Task 8 RewardExecutor 消费 RandomPickOne 标记实现。</summary>
+/// T18 奖励原生上卡：件数在注入时按 rewardMult 烘焙（RewardMath.ScaleCount：round(base×mult)
+/// 下限 1——与旧代码路径"Grant 时缩放"同语义，行内容即最终发放量）。
+/// 注：Items 若是 RandomPickOne 候选池（spec §8「随机×1」），ItemChange 不展开——
+/// 随机语义由 Config_RandomGroup 组行声明式承载（InjectorMapping.RandomGroupRows）。</summary>
 public static class RewardEncoding
 {
-    public static List<int> ItemChangeOf(RewardSpec reward) => Flatten(reward?.Items);
+    public static List<int> ItemChangeOf(RewardSpec reward, double rewardMult = 1.0) =>
+        Flatten(reward?.Items, rewardMult);
 
     /// <summary>ItemCost 同款编码（Task 10；原生行 68252 实证：itemId 重复=件数，如
-    /// [20210,20210,20210,20372,20372]=3×20210+2×20372）。</summary>
-    public static List<int> ItemCostOf(RewardSpec reward) => Flatten(reward?.ItemCosts);
+    /// [20210,20210,20210,20372,20372]=3×20210+2×20372）。不烘焙倍率（扣件=固定代价）。</summary>
+    public static List<int> ItemCostOf(RewardSpec reward) => Flatten(reward?.ItemCosts, 1.0);
 
-    private static List<int> Flatten(List<ItemGain> gains)
+    private static List<int> Flatten(List<ItemGain> gains, double rewardMult)
     {
         var flat = new List<int>();
         if (gains == null) return flat;
         foreach (var g in gains)
         {
             if (g == null || g.Count <= 0) continue;
-            for (var i = 0; i < g.Count; i++) flat.Add(g.ItemId);
+            var count = RewardMath.ScaleCount(g.Count, rewardMult);
+            for (var i = 0; i < count; i++) flat.Add(g.ItemId);
         }
         return flat;
     }
