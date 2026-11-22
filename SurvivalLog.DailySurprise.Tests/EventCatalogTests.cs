@@ -25,9 +25,9 @@ public sealed class EventCatalogTests
     private static readonly HashSet<int> LegalItemIds = new()
     {
         1,     // 饼干
-        3,     // 糖
         7,     // 咖啡
         2101,  // 90压缩饼干
+        2130,  // 可乐（2026-11-22 换入；糖 3=官方占位物品移除）
         2131,  // 能量饮料
         2319,  // 半扇猪肋排
         2323,  // 鹿腿
@@ -265,12 +265,12 @@ public sealed class EventCatalogTests
     {
         Expect.Items(RewardOf(99205), (2101, 4), (1, 6));              // G1 90压缩饼干×4、饼干×6
         Expect.Items(RewardOf(99206), (2400, 2), (2406, 2));           // G2 急救绷带×2、退烧药×2
-        Expect.Items(RewardOf(99207), (2539, 3), (3, 5));              // G3 西瓜×3、糖×5
+        Expect.Items(RewardOf(99207), (2539, 3), (2130, 5));              // G3 西瓜×3、糖×5
         Expect.Items(RewardOf(99208), (7, 4));                         // G4 咖啡×4
         Expect.Items(RewardOf(99209), (11003, 1));                     // G5 食品大包裹×1
         Expect.Items(RewardOf(99210), (13001, 2));                     // G6 随机材料包X8×2
         Expect.Items(RewardOf(99211), (2131, 6));                      // G7 能量饮料×6
-        Expect.Items(RewardOf(99212), (3, 10));                        // G8 糖×10
+        Expect.Items(RewardOf(99212), (2130, 2));                        // G8 糖×10
         Expect.Items(RewardOf(99213), (20362, 12), (20373, 6));        // R1 铁制零件×12、不锈钢板×6
         Expect.Items(RewardOf(99215), (2401, 2), (2405, 3), (2916, 1));// R3 医疗包×2、抗生素×3、吗啡×1
         Expect.Items(RewardOf(99217), (2323, 2), (2324, 1));           // R5 鹿腿×2、巨型火鸡×1
@@ -320,7 +320,7 @@ public sealed class EventCatalogTests
     [Fact]
     public void Events_SpecialOpsMatchSpec()
     {
-        var m1 = ById(99233); // M1 老鼠的牙：随机1台电器耐久-15%
+        var m1 = ById(99233); // M1 老鼠的牙：随机1处防御设施/门窗耐久-15%
         Assert.Equal(SpecialOp.DurabilityPercentRandom, m1.Reward.Op);
         Assert.Equal(15d, m1.Reward.OpParam);
 
@@ -347,7 +347,7 @@ public sealed class EventCatalogTests
         // spec §5.4：M1/M3/M4/H2/D2/H3 依赖玩家资产（家具/生鲜/零件），其余 None
         var expected = new Dictionary<int, Eligibility>
         {
-            [99233] = Eligibility.HasAppliance,          // M1 有电器
+            [99233] = Eligibility.HasFurnitureAtLeast1, // M1 有耐久组件家具（2026-11-22 电器门退役，见 EventCatalog M1 注）
             [99235] = Eligibility.HasFurnitureAtLeast1,  // M3 有家具
             [99236] = Eligibility.HasFreshFood,          // M4 背包有生鲜
             [99239] = Eligibility.HasFurnitureAtLeast1,  // H2 有家具

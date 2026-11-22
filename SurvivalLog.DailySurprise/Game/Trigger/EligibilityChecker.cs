@@ -36,8 +36,6 @@ internal static class EligibilityChecker
                     return true;   // 无门：恒有资格（轻度层 B1~B6 全在此，保证霉运永不落空）
                 case Eligibility.HasFurnitureAtLeast1:
                     return HasAnyFurniture();
-                case Eligibility.HasAppliance:
-                    return HasAppliance();
                 case Eligibility.HasFreshFood:
                     return HasFreshFood();
                 case Eligibility.HasParts10:
@@ -53,43 +51,27 @@ internal static class EligibilityChecker
         }
     }
 
-    /// <summary>HasFurnitureAtLeast1：屋里有任意家具（M3 冰雹/H2 管道爆裂/D2 雷击的耐久打击面）。</summary>
+    /// <summary>HasFurnitureAtLeast1（M1/M3/H2/D2 资格）：屋里有任意门窗/防御设施——
+    /// cfgId ∈ Config_TowerDevice 表（打击面同 PunishmentOps.DurabilityPool 口径，2026-11-23
+    /// scan 实测：普通家具也挂隐形耐久组件但无可见意义，资格与打击面同收窄）。表不可达=无资格。</summary>
     private static bool HasAnyFurniture()
     {
+        var towerDict = BagTable.Cm()?._Config_TowerDevice_Dict;
+        if (towerDict == null) return false;
         var list = WorldFurnitures();
-        return list != null && list.Count > 0;
-    }
-
-    /// <summary>HasAppliance（M1 老鼠的牙）：有带耐久组件且配置 IsElectrical 的家具。</summary>
-    private static bool HasAppliance()
-    {
-        var list = WorldFurnitures();
-        if (list == null || list.Count == 0) return false;
-        var furnDict = BagTable.Cm()?._Config_Furniture_Dict;
-
+        if (list == null) return false;
         var scanned = 0;
         foreach (var f in list)
         {
             if (f == null) continue;
-            if (++scanned > 1000) break;   // 病态长表保险丝（正常档位几十件）
-            try
-            {
-                var dura = GameCore.HotUpdate.Battle.Logic.AgentTools
-                    .GetAgentComponent<GameCore.HotUpdate.Battle.Logic.FurnitureDurabilityComponent>(f);
-                if (dura == null) continue;
-                if (furnDict == null || !furnDict.TryGetValue(f.AgentConfigId, out var cfg) || cfg == null)
-                    return false;   // 家具配置不可达=无法判电器 → 整体失败向（无资格）
-                if (cfg.IsElectrical) return true;
-            }
-            catch (Exception e)
-            {
-                DsTrace.WriteThrottled("elig", "HasAppliance 逐件查询异常（跳过该件）: " + e.Message);
-            }
+            if (++scanned > 1000) break;
+            try { if (towerDict.ContainsKey(f.AgentConfigId)) return true; }
+            catch { }
         }
         return false;
     }
 
-    /// <summary>HasFreshFood（M4 变质）：主角背包存在可腐坏的生鲜（Config_Item.Life&gt;0 且
+    /// <summary>HasFreshFood（M4 变质）：主角背包存在可腐坏的食物（Config_Item.Life&gt;0 且
     /// It_Rot_Product_Id 非空）且尚未腐坏（ItemData.TimeLeft&gt;0）。</summary>
     private static bool HasFreshFood()
     {
@@ -113,7 +95,7 @@ internal static class EligibilityChecker
                 var cfg = cm.Get_Config_Item(it.ItemConfigId);
                 if (cfg == null || cfg.Life <= 0) continue;
                 if (cfg.It_Rot_Product_Id == null || cfg.It_Rot_Product_Id.Count == 0) continue;
-                if (it.TimeLeft > 0) return true;   // 生鲜还在保质期内
+                if (it.TimeLeft > 0) return true;   // 食物还在保质期内
             }
             catch (Exception e)
             {

@@ -22,8 +22,9 @@ namespace SurvivalLog.DailySurprise;
 /// - FurnitureDurabilityComponent dump.cs:374067：GetCurrentDurability/GetMaxDurability（:374122 段）、
 ///   **SetCurrentDurability(int) public**（:374101 段）——直改无副作用；TakeDamage 带 deathCauseKey
 ///   （毁损通知/崩溃支线）不用，**只扣不毁：SetCurrentDurability(max(1, cur−扣量)) 下限 1**；
-/// - 家具池=AgentManager.GetAllFurnitures()（:379587）；电器=Config_Furniture.IsElectrical
-///   （:36922，EligibilityChecker.HasAppliance 同源查询）；主角=GetLeadingRole()（:379458）；
+/// - 家具池=AgentManager.GetAllFurnitures()（:379587）筛有 FurnitureDurabilityComponent 者
+///   （2026-11-22 实测定案：唯防御设施——沙包/尖刺/电网/电锯——与门窗有耐久组件，普通家具/
+///   电器没有；原 electricalOnly 电器限定恒空池已退役）；主角=GetLeadingRole()（:379458）；
 /// - 永久属性=AttributeComponent.AddStrengtheningValue(AttrName, int, bool isClearHistory=false)
 ///   （:371515，public int 重载；SetBaseValue_Int/Float 均 private 不可用——强化层负值即永久扣、
 ///   AttributeComponent 实现 IComponentSave 存档随行）；五维池=AttrName 上限系 101~105
@@ -70,26 +71,26 @@ internal static class PunishmentOps
 
     // ———————————————— 耐久三操作（M1/M3/H2/D2） ————————————————
 
-    /// <summary>M1 老鼠的牙：随机 1 台**电器**家具（HasAppliance 同源查询），耐久扣 max×pct
-    ///（pct 先 ScaleLoss；扣量=max×pct/100 四舍五入取整）。查不到=落空。</summary>
+    /// <summary>M1 老鼠的牙：随机 1 处耐久组件家具（防御设施/门窗，DurabilityPool 同口径），
+    /// 耐久扣 max×pct（pct 先 ScaleLoss；扣量=max×pct/100 四舍五入取整）。查不到=落空。</summary>
     private static string OpDurabilityRandom(double opParam, double lossMult, Random rand)
     {
         var pct = RewardMath.ScaleLoss(opParam, lossMult);
-        var pool = DurabilityPool(electricalOnly: true);
-        if (pool.Count == 0) return "落空：屋内无可扣耐久的电器家具";
+        var pool = DurabilityPool();
+        if (pool.Count == 0) return "落空：屋内无可扣耐久的防御设施/门窗";
 
         var detail = new StringBuilder();
         var total = 0;
         HitDurability(pool[rand.Next(pool.Count)], pct, detail, ref total);
-        return "耐久-" + pct.ToString("0.###") + "% 电器×1（实扣" + total + "）" + detail;
+        return "耐久-" + pct.ToString("0.###") + "% 防御设施/门窗×1（实扣" + total + "）" + detail;
     }
 
     /// <summary>M3 冰雹：全屋家具逐台扣 max×pct。</summary>
     private static string OpDurabilityAll(double opParam, double lossMult)
     {
         var pct = RewardMath.ScaleLoss(opParam, lossMult);
-        var pool = DurabilityPool(electricalOnly: false);
-        if (pool.Count == 0) return "落空：屋内无可扣耐久的家具";
+        var pool = DurabilityPool();
+        if (pool.Count == 0) return "落空：屋内无可扣耐久的防御设施/门窗";
 
         var detail = new StringBuilder();
         var total = 0;
@@ -109,8 +110,8 @@ internal static class PunishmentOps
     {
         EventCatalog.DecodeDurabilityRange(opParam, out var minCount, out var maxCount, out var pctBase);
         var pct = RewardMath.ScaleLoss(pctBase, lossMult);
-        var pool = DurabilityPool(electricalOnly: false);
-        if (pool.Count == 0) return "落空：屋内无可扣耐久的家具";
+        var pool = DurabilityPool();
+        if (pool.Count == 0) return "落空：屋内无可扣耐久的防御设施/门窗";
 
         var n = rand.Next(minCount, maxCount + 1);
         if (n > pool.Count) n = pool.Count;   // 台数超实有=全打
@@ -133,19 +134,16 @@ internal static class PunishmentOps
             + "（实扣" + hit + "台合计" + total + "）" + detail;
     }
 
-    /// <summary>可扣耐久家具池： GetAllFurnitures() → 有 FurnitureDurabilityComponent 的家具；
-    /// electricalOnly=true 再过 Config_Furniture.IsElectrical（配置不可达=池空，安全向=落空，
-    /// EligibilityChecker 同方向）。病态长表保险丝 1000（同款）。</summary>
-    private static List<Furniture> DurabilityPool(bool electricalOnly)
+    /// <summary>可扣耐久家具池（2026-11-23 scan 实测二次收窄）：GetAllFurnitures() → cfgId ∈
+    /// Config_TowerDevice 表（24 ID=门窗 30000~35002 + 防御设施 36001~36004 + 原生门窗 200/211/
+    /// 212/368/369/9094/9112/8xxxx——被丧尸攻击的"塔防装置"体系）且有耐久组件者。scan 实测全屋
+    /// 148 件普通家具也都挂组件（max=1000 隐形耐久、游戏内无可见意义），按全部打=满屏提示且语义
+    /// 错——收窄为玩家可见耐久的门窗+防御设施。表不可达=池空（安全向，EligibilityChecker 同方向）。</summary>
+    private static List<Furniture> DurabilityPool()
     {
         var result = new List<Furniture>();
-        Il2CppSystem.Collections.Generic.Dictionary<int, GameCore.HotUpdate.Config_Furniture> furnDict = null;
-        if (electricalOnly)
-        {
-            furnDict = BagTable.FurnDict(BagTable.Cm());
-            if (furnDict == null) return result;
-        }
-
+        var towerDict = SurvivalLog.ModShared.BagTable.Cm()?._Config_TowerDevice_Dict;
+        if (towerDict == null) return result;
         var list = EligibilityChecker.World()?._AgentManager?.GetAllFurnitures();
         if (list == null) return result;
 
@@ -156,10 +154,8 @@ internal static class PunishmentOps
             if (++scanned > 1000) break;
             try
             {
+                if (!towerDict.ContainsKey(f.AgentConfigId)) continue;   // 唯门窗+防御设施
                 if (GameCore.HotUpdate.Battle.Logic.AgentTools.GetAgentComponent<FurnitureDurabilityComponent>(f) == null)
-                    continue;
-                if (electricalOnly &&
-                    (!furnDict.TryGetValue(f.AgentConfigId, out var cfg) || cfg == null || !cfg.IsElectrical))
                     continue;
                 result.Add(f);
             }
@@ -217,7 +213,7 @@ internal static class PunishmentOps
 
     // ———————————————— M4 变质：生鲜腐坏替换 ————————————————
 
-    /// <summary>M4：主角背包挑 Config_Item.Life 最短且未腐坏（TimeLeft&gt;0）生鲜最多 opParam 件
+    /// <summary>M4：主角背包挑 Config_Item.Life 最短且未腐坏（TimeLeft&gt;0）食物最多 opParam 件
     ///（Life 同长按实例 Id 稳定排序），逐件替换为 It_Rot_Product_Id[0] 腐坏产物：CostItem 精准扣
     /// 1 件（栈安全）→ TryAddItemToBag 1:1 补腐坏产物（入包失败如实标注——食物照腐）。</summary>
     private static string OpRotFood(double opParam)
@@ -255,7 +251,7 @@ internal static class PunishmentOps
                 }
             }
         }
-        if (candidates.Count == 0) return "落空：背包无未腐坏生鲜";
+        if (candidates.Count == 0) return "落空：背包无未腐坏食物";
 
         candidates.Sort((a, b) => a.life != b.life
             ? a.life.CompareTo(b.life)
@@ -268,7 +264,7 @@ internal static class PunishmentOps
         {
             try
             {
-                im.CostItem(owner, item.InstanceId, 1);   // 移除生鲜 1 件
+                im.CostItem(owner, item.InstanceId, 1);   // 移除食物 1 件
                 var added = TryAddRot(world, im, cm, owner, rotId);   // 补腐坏产物 1:1
                 done++;
                 detail.Append(' ').Append(item.ItemConfigId).Append("→").Append(rotId)

@@ -5,8 +5,11 @@ namespace SurvivalLog.DailySurprise;
 /// <summary>运势档位（纯逻辑层）。</summary>
 public enum LuckKind { Plain, Good, Bad }
 
-/// <summary>事件资格门（玩家家底条件，纯逻辑层；判定逻辑 Task 6+ 落地）。</summary>
-public enum Eligibility { None, HasAppliance, HasFurnitureAtLeast1, HasFreshFood, HasParts10 }
+/// <summary>事件资格门（玩家家底条件，纯逻辑层；判定逻辑 Task 6+ 落地）。
+/// HasFurnitureAtLeast1=屋内有耐久组件家具（2026-11-22 实测定案：唯防御设施——沙包/尖刺/
+/// 电网/电锯——与门窗有 FurnitureDurabilityComponent，普通家具/电器没有；HasAppliance
+/// 电器门因电器恒无耐久组件而退役删除）。</summary>
+public enum Eligibility { None, HasFurnitureAtLeast1, HasFreshFood, HasParts10 }
 
 /// <summary>RewardSet 覆盖不了、走代码路径的特殊操作（spec §7.2 RewardExecutor）。</summary>
 public enum SpecialOp

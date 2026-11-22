@@ -138,7 +138,7 @@ public static class EventCatalog
             Ev(Ids.G2, LuckKind.Good, 0, "过期药品回收站", "药店的后门没锁，大部分药还在保质期内。",
                 Rs(items: Items((2400, 2), (2406, 2)))),                   // 急救绷带×2、退烧药×2
             Ev(Ids.G3, LuckKind.Good, 0, "水果快递", "一辆侧翻的三轮车，水果滚了一地，车主不知去向。",
-                Rs(items: Items((2539, 3), (3, 5)))),                       // 西瓜×3、糖×5
+                Rs(items: Items((2539, 3), (2130, 5)))),                   // 西瓜×3、可乐×5（糖 ID3=官方占位物品：错版描述/全属性0/纸箱模型，2026-11-22 换可乐 2130）
             Ev(Ids.G4, LuckKind.Good, 0, "咖啡的香气", "你在废墟里闻到了咖啡味。豆子是好的，运气也是。",
                 Rs(items: Items((7, 4)), buffs: Buffs(11004))),             // 咖啡×4 + 精神振奋
             Ev(Ids.G5, LuckKind.Good, 0, "罐头雨", "杂货店的货架整排倒向了你这一边。",
@@ -147,8 +147,8 @@ public static class EventCatalog
                 Rs(items: Items((13001, 2)))),                              // 随机材料包X8×2
             Ev(Ids.G7, LuckKind.Good, 0, "能量饮料墙", "自动售货机被撬开了，笑的人是你。",
                 Rs(items: Items((2131, 6)), buffs: Buffs(20020))),          // 能量饮料×6 + 能量饮料buff
-            Ev(Ids.G8, LuckKind.Good, 0, "小确幸", "你在旧外套口袋里摸到了糖。今天不错。",
-                Rs(items: Items((3, 10)), buffs: Buffs(2))),                // 糖×10 + 神清气爽
+            Ev(Ids.G8, LuckKind.Good, 0, "小确幸", "你在旧外套口袋里摸到了两罐可乐。今天不错。",
+                Rs(items: Items((2130, 2)), buffs: Buffs(2))),              // 可乐×2 + 神清气爽（原糖×10——占位物品换可乐；可乐 500g/瓶 1×2 占格，口袋量 10→2 才合体感）
 
             // ———— §8.3 好运·稀有 R1~R6 等权 ————
             Ev(Ids.R1, LuckKind.Good, 1, "建材车队遗撒", "一辆卡车在路口散了架，货是真的。",
@@ -214,15 +214,17 @@ public static class EventCatalog
                 Rs(buffs: Buffs(99284))),   // 睡不着（克隆11008：精力获得效率−30%，24h）
 
             // ———— §8.7 霉运·中度 M1~M5 等权 ————
-            // M1 老鼠的牙：随机1台【电器】耐久−15%（资格=有电器，§5.4）
-            Ev(Ids.M1, LuckKind.Bad, 1, "老鼠的牙", "老鼠咬穿了电线包皮。它没事，冰箱有事。",
-                Rs(op: SpecialOp.DurabilityPercentRandom, opParam: 15), Eligibility.HasAppliance),
+            // M1 老鼠的牙：随机1处【防御工事/门窗】耐久−15%（2026-11-22 实测定案：普通家具与电器
+            // 无耐久组件，唯防御设施——沙包/尖刺/电网/电锯——与门窗有 FurnitureDurabilityComponent；
+            // 原电器限定恒无资格事件死路，改与 M3/H2/D2 同口径=有耐久组件家具≥1，§5.4）
+            Ev(Ids.M1, LuckKind.Bad, 1, "老鼠的牙", "半夜里有老鼠在磨牙。最先遭殃的是防御工事和门窗。",
+                Rs(op: SpecialOp.DurabilityPercentRandom, opParam: 15), Eligibility.HasFurnitureAtLeast1),
             Ev(Ids.M2, LuckKind.Bad, 1, "换季感冒", "打了三个喷嚏之后，你知道完蛋了。",
                 Rs(buffs: Buffs(1116, 1110))),   // 风寒+发烧（原生）
-            // M3 冰雹：全屋家具耐久−5%（资格=有家具）
+            // M3 冰雹：全部防御工事与门窗耐久−5%（资格=有耐久组件家具，见 M1 注）
             Ev(Ids.M3, LuckKind.Bad, 1, "冰雹", "冰雹砸在屋顶上，像有人在楼上跳。",
                 Rs(op: SpecialOp.DurabilityPercentAll, opParam: 5), Eligibility.HasFurnitureAtLeast1),
-            // M4 变质：背包生鲜随机腐坏 1~2 件（资格=有生鲜）
+            // M4 变质：背包食物随机腐坏 1~2 件（可腐=Life>0 含罐头，优先腐保质最短；资格=有可腐食物）
             Ev(Ids.M4, LuckKind.Bad, 1, "变质", "你打开罐头，罐头先看了你一眼。",
                 Rs(op: SpecialOp.RotFood, opParam: 2), Eligibility.HasFreshFood),
             Ev(Ids.M5, LuckKind.Bad, 1, "野蘑菇", "你发誓那本图鉴上是这么画的。",
@@ -232,7 +234,7 @@ public static class EventCatalog
             // H1 心结【占永久上限】替补=H4：克隆24112 新 Id 99280（心态/精力获得效率各−0.5%，永久）
             Ev(Ids.H1, LuckKind.Bad, 2, "心结", "半夜醒来，你想起了末日前的家。",
                 Rs(buffs: Buffs(99280))),
-            // H2 管道爆裂：3~5台家具耐久−25%（资格=有家具；OpParam 编码见 EncodeDurabilityRange 注）
+            // H2 管道爆裂：3~5处防御工事/门窗耐久−25%（资格=有耐久组件家具；OpParam 编码见 EncodeDurabilityRange 注）
             Ev(Ids.H2, LuckKind.Bad, 2, "管道爆裂", "水管在墙里闷响了一夜，早上墙鼓了包。",
                 Rs(op: SpecialOp.DurabilityPercentRange, opParam: EncodeDurabilityRange(3, 5, 25)),
                 Eligibility.HasFurnitureAtLeast1),
@@ -257,7 +259,7 @@ public static class EventCatalog
             // AllowPermanentNegative=false 时的行运低潮替代路径（按倍率选Ⅱ~Ⅴ）归 Task 9（RewardMath.PickSlump）。
             Ev(Ids.D1, LuckKind.Bad, 3, "代价", "世界收走了它借给你的东西。",
                 Rs(op: SpecialOp.AttrPermRandom, opParam: 10)),
-            // D2 雷击：2~4台家具耐久−40%（不摧毁；可重复出现，无独立次数上限，§5.4）
+            // D2 雷击：2~4处防御工事/门窗耐久−40%（不摧毁；可重复出现，无独立次数上限，§5.4）
             Ev(Ids.D2, LuckKind.Bad, 3, "雷击", "雷劈中了避雷针，也劈中了旁边的它。",
                 Rs(op: SpecialOp.DurabilityPercentRange, opParam: EncodeDurabilityRange(2, 4, 40)),
                 Eligibility.HasFurnitureAtLeast1),
