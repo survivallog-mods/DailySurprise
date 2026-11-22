@@ -21,9 +21,6 @@ internal static class HourWatcher
     {
         try
         {
-            var triggerHour = DsConfig.TriggerHourValue;
-            if (triggerHour <= 0) return;   // 0=旧行为：结算 hook 即时触发，小时门不参与
-
             var world = EligibilityChecker.World();
             if (world == null) return;      // 未进档/世界未建：静默（hook/DayWatcher 同款空窗语义）
             if (!ReferenceEquals(_armedOn, world))
@@ -43,6 +40,11 @@ internal static class HourWatcher
                 return;
             }
             if (day <= 0) return;
+
+            // 临时测试开关（验完删）：DebugRandomDailyHour=true 时当天触发小时随机（1~23），
+            // 覆盖 TriggerHour；其余判定（HourGateReached/重试节流）原样复用
+            var triggerHour = TempTest.RandomDailyHourEnabled ? TempTest.RandomHourFor(day) : DsConfig.TriggerHourValue;
+            if (triggerHour <= 0) return;   // 0=旧行为：结算 hook 即时触发，小时门不参与
 
             if (!DailyFlow.HourGateReached(day, hour, triggerHour, _firedDay)) return;
             if (DailyFlow.OnNewDay(day)) _firedDay = day;

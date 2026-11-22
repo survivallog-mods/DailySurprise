@@ -23,7 +23,8 @@ public sealed class DailySurprisePlugin : BasePlugin
     public override void Load()
     {
         Log = base.Log;
-        DsConfig.Init(Config);   // cfg 全 11 项（spec §7.4 正式 8 项 + TriggerHour + 调试 DebugForceEventId/DebugCardType）集中绑定，热更=实时取值
+        DsConfig.Init(Config);   // cfg 全 12 项（General.Enabled 总开关 + spec §7.4 正式 8 项 + TriggerHour + 调试 DebugForceEventId/DebugCardType）集中绑定，热更=实时取值
+        TempTest.Init(Config);   // 临时测试开关（DebugRandomDailyHour/DebugHourlyPopup，验完随 TempTestSwitches.cs 删除）
 
         // 自证文件 trace\_DONE.txt（内容=GUID+时间戳，硬规则9：不依赖 LogOutput.log）
         DsTrace.Write("_DONE", Ds.Guid);
@@ -72,10 +73,13 @@ internal sealed class DsTicker : MonoBehaviour
         _acc += UnityEngine.Time.unscaledDeltaTime;
         if (_acc < 2f) return;
         _acc = 0;
+        if (!DsConfig.MasterEnabled) return;   // General.Enabled 总开关（ModCenter 启停位）：一夫当关短路全部业务链
         try { ConfigRegistrar.Step(); }   // Task 17：快照注册兜底（Configs 补注册先于任何触发/强制链；
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "ConfigRegistrar: " + e.Message); }  //     主通道=postfix StartBattle_AfterAgent
         try { SpikeForce.OnStep(); }
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "SpikeForce: " + e.Message); }
+        try { TempTest.Step(); }   // 临时测试：每小时随机弹窗（DebugHourlyPopup，验完删）
+        catch (Exception e) { DsTrace.WriteThrottled("ticker", "TempTest: " + e.Message); }
         try { PendingFlusher.Step(); }   // 进档补发挂账奖励（Task 8；先于每日触发——DayWatcher 在后）
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "PendingFlusher: " + e.Message); }
         try { HourWatcher.Step(); }   // 定时小时门（Task 14：TriggerHour>0 时唯一触发源；=0 静默）
@@ -99,6 +103,9 @@ internal static class SpikeForce
     {
         var report = TableInjector.EnsureInjected();   // 未就绪=下轮再试（内部自带 try/catch+trace）
         if (report == null) return;
+        if (!ConfigsRegistered()) return;   // 快照就绪闸（2026-11-23 根修）：Configs 补注册完成前
+                                          // TryForceTriggerEvent 查不到行恒 False——实测触发可比
+                                          // registrar postfix 早 7 秒，等注册完才触发一次，杜绝盲试
 
         var id = DsConfig.DebugForceEventId?.Value ?? 0;
         if (id <= 0) return;
@@ -129,8 +136,9 @@ internal static class SpikeForce
     /// StartRewardSetId 已恢复），代码只跑 RunsTopLevelOp 的 Op 系（选项事件顶层短路维持——
     /// H3 零件损失在「算了」子事件 ItemCost）；全通道失败（NeedsBubbleGrant，调试链无气泡展示、
     /// 奖励照发）→ RewardExecutor 全量代码发奖+拒收挂账（数量=RewardSpec 基准×当前难度，
-    /// 与注入行烘焙同公式，不二次缩放）。</summary>
-    private static void ForceGrant(int id, CardChannel channel)
+    /// 与注入行烘焙同公式，不二次缩放）。2026-11-23 起 TempTest（DebugForceEventKey）复用本分流
+    /// ——下拉链与 ID 链执行语义完全一致（作者实测推翻"仅展示"旧认知：T19 后原生卡确认即结算奖励）。</summary>
+    internal static void ForceGrant(int id, CardChannel channel)
     {
         try
         {
@@ -170,6 +178,21 @@ internal static class SpikeForce
             if (e.Id == id)
                 return e.Key + "「" + e.Title + "」" + (e.Reward is { Choices.Count: > 0 } ? "选项" : "直发");
         return "非目录事件";
+    }
+
+    /// <summary>Configs 快照就绪闸：首事件行（99200）已在 dem.Configs 字典=补注册完成。
+    /// 注册前触发只会全通道失败（2026-11-23 00:15 实测：触发比 registrar postfix 早 7 秒）。
+    /// 任何异常=未就绪（安全向等待）。TempTest.ForceStep 同闸复用。</summary>
+    internal static bool ConfigsRegistered()
+    {
+        try
+        {
+            var dem = LiveDem();
+            if (dem == null) return false;
+            var configs = dem.Configs;
+            return configs != null && configs.ContainsKey(EventCatalog.FirstEventId);
+        }
+        catch { return false; }
     }
 
     /// <summary>DynamicEventManager 可达性：BattleLogicWorld 单例 → _DynamicEventManager
