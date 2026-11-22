@@ -12,7 +12,7 @@ namespace SurvivalLog.DailySurprise.Tests;
 /// <summary>Icon 命名契约测试（Task 11 Step 1，先写后实现；规格 v2 适配 webp）。钉死三件事：
 /// ① 45 事件 Icon 字段形态——裸名匹配 ^ds_[a-z0-9]+\.webp$ 且与自身 Key 一致
 /// （ds_g1.webp↔Key="g1"）；注入合成值（InjectorMapping.IconFieldOf）匹配 T18 原生约定
-/// ^Assets/RuntimeAssets/Texture/Icon/ds_[a-z0-9]+$（ResolveIconDir 剥前缀+扩展名自动重试）。
+/// ^Assets/RuntimeAssets/Texture/EventNew/ds_[a-z0-9]+$（ResolveIconDir 剥前缀+扩展名自动重试）。
 /// ② EmbeddedResource 名单（Art\ 目录扫描 → IconNaming.ResourceNameOf）与 45 事件
 /// 期望资源集的差集：越集（目录外文件）=错；缺图=预期（正式图到位前只硬性要求占位
 /// ds_g1.webp 在资源里——链路验证用），差集以测试输出报告，不断言 44 张。
@@ -20,7 +20,7 @@ namespace SurvivalLog.DailySurprise.Tests;
 public sealed class IconNamingTests
 {
     private static readonly Regex IconFileRegex = new("^ds_[a-z0-9]+\\.webp$", RegexOptions.Compiled);
-    private static readonly Regex NativeIconPathRegex = new("^Assets/RuntimeAssets/Texture/Icon/ds_[a-z0-9]+$", RegexOptions.Compiled);
+    private static readonly Regex NativeIconPathRegex = new("^Assets/RuntimeAssets/Texture/EventNew/ds_[a-z0-9]+$", RegexOptions.Compiled);
     private static readonly byte[] RiffHeader = { 0x52, 0x49, 0x46, 0x46 };   // "RIFF"
     private static readonly byte[] WebpHeader = { 0x57, 0x45, 0x42, 0x50 };   // "WEBP"
 
@@ -41,7 +41,7 @@ public sealed class IconNamingTests
             Assert.Equal("ds_" + e.Key + ".webp", e.Icon);
             // 表 Icon 字段实际形态（T18 原生约定）：IconFieldOf 合成=前缀+裸名去扩展名
             var field = InjectorMapping.IconFieldOf(e.Icon);
-            Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_" + e.Key, field);
+            Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_" + e.Key, field);
             Assert.Matches(NativeIconPathRegex, field);
         }
         Assert.Equal("ds_g1.webp", ByKey("g1").Icon);   // 链路验证占位（DebugForceEventId=99205）
@@ -54,9 +54,9 @@ public sealed class IconNamingTests
     public void IconFieldOf_NativeFormat_StripsExtensionWithDefaults()
     {
         Assert.False(InjectorMapping.UseLegacyIconPath);   // 主选=原生约定
-        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_g1", InjectorMapping.IconFieldOf("ds_g1.webp"));
-        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_g1", InjectorMapping.IconFieldOf("ds_g1"));   // 无扩展名防御
-        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/", InjectorMapping.IconFieldOf(""));              // 空防御
+        Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_g1", InjectorMapping.IconFieldOf("ds_g1.webp"));
+        Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_g1", InjectorMapping.IconFieldOf("ds_g1"));   // 无扩展名防御
+        Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/", InjectorMapping.IconFieldOf(""));              // 空防御
         Assert.Equal("../../Res/Icon/", InjectorMapping.LegacyIconPrefix);   // 备选前缀形态钉死（+裸名原样）
     }
 

@@ -7,11 +7,12 @@ namespace SurvivalLog.DailySurprise;
 
 /// <summary>配图落盘通道（Task 11，EndlessGuard ArrowTower.EnsureIconFile 同源模式的多图版）：
 /// 程序集 EmbeddedResource（csproj 通配 Art\*.webp，资源名=IconNaming.ResourcePrefix+文件名）
-/// → 写 <游戏根>\SurvivalLog_Data\StreamingAssets\WebUI\Res\Icon\ds_*.webp；表 Icon 字段（T18
-/// 原生约定 "Assets/RuntimeAssets/Texture/Icon/ds_xx"——InjectorMapping.IconFieldOf，无扩展名）
-/// 经 ResolveIconDir 剥前缀转 ../../Res/Icon/ds_xx，webui-core RES_IMG_EXTS 自动重试 .webp
-/// 从该目录命中（备选开关 UseLegacyIconPath=true 时为 "../../Res/Icon/ds_xx.webp" 面板相对
-/// 路径直填，同目录按普通文件解析——EndlessGuard wave8 ToolTable.html 实证通道）。
+/// → 写 <游戏根>\SurvivalLog_Data\StreamingAssets\WebUI\Res\EventNew\ds_*.webp；表 Icon 字段
+/// （"Assets/RuntimeAssets/Texture/EventNew/ds_xx"——InjectorMapping.IconFieldOf，无扩展名）
+/// 经 ResolveIconDir 段名映射 ../../Res/EventNew/ds_xx.png → webui-core RES_IMG_EXTS 自动重试
+/// .webp 命中落盘文件（2026-11-22 修复：旧 Icon 段不在 ResolveIconDir 段名匹配集，URL 丢段名
+/// 指向 Res 根恒 404 → 裂图；EventNew=原生 1880 行主流段，同链路实证）。
+/// 升级残留清理：旧版落盘的 Res\Icon\ds_*.webp 顺手删除（幂等；仅删 ds_ 前缀，不碰原生文件）。
 /// 幂等（可重复调用）：目标已存在且字节数+SHA256 全等→跳过零写入；不一致→覆盖
 ///（升级换图：作者替换 Art\ 里的同名文件重新构建即热换）。
 /// 失败隔离：逐资源 try/catch；每资源结果+末尾汇总行写 trace\icons.txt（0 张也有一行
@@ -44,7 +45,8 @@ internal static class IconDrop
                 DsTrace.Write("icons", "WebUI/Res 目录不存在（" + resDir + "）——图标不落盘，事件卡将显示裂图");
                 return;
             }
-            Directory.CreateDirectory(Path.Combine(resDir, "Icon"));   // 已有则空转；只在已验证的 Res 下补子目录
+            Directory.CreateDirectory(Path.Combine(resDir, "EventNew"));   // 已有则空转；只在已验证的 Res 下补子目录
+            CleanupLegacyIcons(resDir);   // 旧版 Res\Icon\ds_*.webp 残留清理（Icon 段→EventNew 段迁移，幂等）
 
             names = typeof(IconDrop).Assembly.GetManifestResourceNames();
             Array.Sort(names, StringComparer.Ordinal);
@@ -60,7 +62,7 @@ internal static class IconDrop
                 try
                 {
                     var bytes = ReadResource(name);
-                    var target = Path.Combine(resDir, "Icon", file);
+                    var target = Path.Combine(resDir, "EventNew", file);
                     if (File.Exists(target) && SameContent(target, bytes))
                     {
                         skipped++;   // 字节数+SHA256 全等：零写入零 trace（稳态静默）
@@ -92,6 +94,26 @@ internal static class IconDrop
                     + "、跳过 " + skipped + "、失败 " + failed + "）"
                     + (CountDsIcons(names) == 0 ? "（Art\\ 无图：作者出图前仅占位链路，见 art-spec/acceptance-checklist.md）" : ""));
         }
+    }
+
+    /// <summary>旧版落盘残留清理（2026-11-22 段名迁移）：删 Res\Icon\ 下全部 ds_*.webp——
+    /// 该目录路径已不被任何表行引用（ResolveIconDir 不认 Icon 段）。只删 ds_ 前缀文件，
+    /// 原生文件零接触；失败只记 trace（清理失败无害：孤儿文件不影响显示）。</summary>
+    private static void CleanupLegacyIcons(string resDir)
+    {
+        try
+        {
+            var legacyDir = Path.Combine(resDir, "Icon");
+            if (!Directory.Exists(legacyDir)) return;
+            var removed = 0;
+            foreach (var f in Directory.GetFiles(legacyDir, "ds_*.webp"))
+            {
+                try { File.Delete(f); removed++; }
+                catch (Exception e) { DsTrace.Write("icons", "旧残留删除失败 " + Path.GetFileName(f) + ": " + e.Message); }
+            }
+            if (removed > 0) DsTrace.Write("icons", "旧版 Res\\Icon\\ 迁移清理：删除 " + removed + " 张 ds_*.webp（现落盘 Res\\EventNew\\）");
+        }
+        catch (Exception e) { DsTrace.Write("icons", "CleanupLegacyIcons 异常: " + e.Message); }
     }
 
     private static int CountDsIcons(string[] names)

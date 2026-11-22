@@ -9,8 +9,8 @@ namespace SurvivalLog.DailySurprise;
 /// 通配 Art\*.webp 的物理面）对账。命名链三段一致（规格 v2：4:3 横版 1536×1152 WebP q90，
 /// 对齐官方原生事件图）：
 /// 事件 Key（g1）→ 裸文件名（ds_g1.webp，<see cref="EventDef.Icon"/>）→ 表 Icon 字段
-/// （T18 原生约定 Assets/RuntimeAssets/Texture/Icon/ds_g1——ResolveIconDir 剥前缀转
-/// ../../Res/Icon/ds_g1 + 扩展名自动重试；<see cref="InjectorMapping.IconFieldOf"/> 合成）→
+/// （原生主流段形态 Assets/RuntimeAssets/Texture/EventNew/ds_g1——ResolveIconDir 段名映射
+/// ../../Res/EventNew/ds_g1 + 扩展名自动重试；<see cref="InjectorMapping.IconFieldOf"/> 合成）→
 /// 内嵌资源名（SurvivalLog.DailySurprise.Art.ds_g1.webp，csproj RootNamespace+目录路径，
 /// EndlessGuard Resources.eg_arrow_tower.png 同源规则）→ 落盘文件（ds_g1.webp）。
 /// 消费方：Game/Art/IconDrop（ResourcePrefix 扫资源、ResourceNameOf 反解文件名）、
@@ -22,7 +22,7 @@ public static class IconNaming
 
     private static readonly Regex IconFileRegex = new("^ds_[a-z0-9]+\\.webp$", RegexOptions.Compiled);
     private static readonly Regex IconPathRegex = new("^\\.\\./\\.\\./Res/Icon/ds_[a-z0-9]+\\.webp$", RegexOptions.Compiled);
-    private static readonly Regex NativeIconPathRegex = new("^Assets/RuntimeAssets/Texture/Icon/ds_[a-z0-9]+$", RegexOptions.Compiled);
+    private static readonly Regex NativeIconPathRegex = new("^Assets/RuntimeAssets/Texture/EventNew/ds_[a-z0-9]+$", RegexOptions.Compiled);
 
     /// <summary>裸文件名 → 内嵌资源名（IconDrop 扫描名单与 Art\ 目录文件的对账桥）。</summary>
     public static string ResourceNameOf(string fileName) => ResourcePrefix + fileName;
@@ -44,8 +44,8 @@ public static class IconNaming
         events.Select(e => ResourcePrefix + "ds_" + e.Key + ".webp").ToList();
 
     /// <summary>Icon 字段契约校验（45 全量应为空）：裸名形态 ^ds_[a-z0-9]+\.webp$、
-    /// 文件名与自身 Key 一致（ds_g1.webp↔Key="g1"）、合成表字段形态（T18 原生约定
-    /// ^Assets/RuntimeAssets/Texture/Icon/ds_[a-z0-9]+$；备选开关下为旧面板相对路径形态）、无重复。
+    /// 文件名与自身 Key 一致（ds_g1.webp↔Key="g1"）、合成表字段形态（原生主流段
+    /// ^Assets/RuntimeAssets/Texture/EventNew/ds_[a-z0-9]+$；备选开关下为旧面板相对路径形态）、无重复。
     /// 每条问题一行，含 Key+Id 定位。</summary>
     public static IReadOnlyList<string> IconIssues(IEnumerable<EventDef> events)
     {
@@ -69,7 +69,7 @@ public static class IconNaming
             var ok = InjectorMapping.UseLegacyIconPath ? IconPathRegex.IsMatch(path) : NativeIconPathRegex.IsMatch(path);
             if (!ok)
                 issues.Add(where + ": 合成表字段 \"" + path + "\" 不匹配当前注入格式（"
-                    + (InjectorMapping.UseLegacyIconPath ? "^../../Res/Icon/ds_x.webp$" : "^Assets/RuntimeAssets/Texture/Icon/ds_x$")
+                    + (InjectorMapping.UseLegacyIconPath ? "^../../Res/Icon/ds_x.webp$" : "^Assets/RuntimeAssets/Texture/EventNew/ds_x$")
                     + "）");
             if (!seen.Add(e.Icon))
                 issues.Add(where + ": Icon 重复 \"" + e.Icon + "\"");

@@ -49,16 +49,19 @@ public static class InjectorMapping
     public const int FirstRandomGroupId = 99250;            // 99250..99254：R2/E1/E3/E4/L2 五池（独立表段）
     public const string SourceTag = "DailySurprise";         // 正式命名（前 DailySurprise_Spike，Task 2 spike 遗留）
 
-    /// <summary>表 Icon 字段原生约定前缀（T18）：Reducer_Web_EventChoice.ResolveIconDir（dump.cs:183295）
-    /// 剥 "Assets/RuntimeAssets/Texture/" 转 WebUI 相对路径 ../../Res/&lt;子路径&gt;，webui-core.js:836
-    /// RES_IMG_EXTS 自动重试扩展名（.webp 优先）命中 IconDrop 落盘文件；无扩展名=原生行主流形态
-    /// （Config_Event 2101 行中 2056 行无扩展名）。完整值=IconPrefix+裸名去扩展名（见 IconFieldOf）。</summary>
-    public const string IconPrefix = "Assets/RuntimeAssets/Texture/Icon/";
+    /// <summary>表 Icon 字段原生约定前缀（2026-11-22 图不显示根因修复）：Reducer_Web_EventChoice
+    /// .ResolveIconDir（dump.cs:183295）按 "Assets/RuntimeAssets/Texture/&lt;段&gt;" 的段名匹配映射
+    /// WebUI 相对路径——段名匹配集=EventNew/Story/MapPoint（原生 Config_Event 表 1880/79/34 行主流段，
+    /// il2cpp stringliteral 实证）；不认识的段（含旧用的 Icon）落默认前缀 ../../Res/ 丢段名 → URL 指向
+    /// Res 根 → 404 → 裂图（T18 误用 Icon 段即此根因）。本 mod 改用原生主流 EventNew 段：
+    /// URL=../../Res/EventNew/&lt;名&gt;.png → webui-core.js:836 RES_IMG_EXTS 自动重试 .webp 命中
+    /// IconDrop 落盘文件（原生 EventNew 行同链路：表无扩展名+磁盘 .webp，重试机制实证在工作）。
+    /// 无扩展名=原生行主流形态（Config_Event 2101 行中 2056 行无扩展名）。</summary>
+    public const string IconPrefix = "Assets/RuntimeAssets/Texture/EventNew/";
 
-    /// <summary>备选格式（T18 实机预案）：ResolveIconDir 行为超出推断（长前缀仍不显示）时切
-    /// UseLegacyIconPath=true——Icon 直接填面板 CSS 相对路径（EventChoice.html 自身样式即用
-    /// ../../Res/ 前缀，面板侧可解析）。编译期小开关（static readonly 而非 const：防常量传播
-    /// 产生不可达代码警告——测试零警告红线），不暴露 cfg。</summary>
+    /// <summary>备选格式（T18 实机预案，未启用）：Icon 直接填面板 CSS 相对路径（EventChoice.html
+    /// 自身样式即用 ../../Res/ 前缀，面板侧可解析）。编译期小开关（static readonly 而非 const：
+    /// 防常量传播产生不可达代码警告——测试零警告红线），不暴露 cfg。</summary>
     internal static readonly bool UseLegacyIconPath = false;
     internal const string LegacyIconPrefix = "../../Res/Icon/";
 
@@ -74,6 +77,35 @@ public static class InjectorMapping
         }
         return LegacyIconPrefix + bareIcon;
     }
+
+    /// <summary>事件卡描述（2026-11-22 卡面可见性补）：台词 + Op 系惩罚效果说明——Op 惩罚由代码
+    /// 执行（PunishmentOps），RewardSet 清单区不显示，此前卡面只见台词不见"耐久-5%"。数量为
+    /// 基准值（实际按损失倍率缩放，见 README §三）。选项事件（H3）分支自带文案不加。</summary>
+    public static string DesOf(EventDef e)
+    {
+        if (e?.Reward == null || e.Reward.Op == SpecialOp.None || e.Reward.RunsTopLevelOp == false)
+            return e?.Dialogue ?? "";
+        return e.Dialogue + OpSuffix(e.Reward);
+    }
+
+    /// <summary>Op → 人话效果句（基准值；DurabilityPercentRange 编码现场解码）。</summary>
+    private static string OpSuffix(RewardSpec r) => r.Op switch
+    {
+        SpecialOp.DurabilityPercentRandom => "（随机一处防御工事或门窗耐久-" + Fmt(r.OpParam) + "%）",
+        SpecialOp.DurabilityPercentAll => "（全部防御工事与门窗耐久-" + Fmt(r.OpParam) + "%）",
+        SpecialOp.DurabilityPercentRange => Decode(r.OpParam),
+        SpecialOp.RotFood => "（背包食物腐坏 " + Fmt(r.OpParam) + " 件）",
+        SpecialOp.AttrPermRandom => "（随机一项属性永久-" + Fmt(r.OpParam) + "）",
+        _ => "",
+    };
+
+    private static string Decode(double opParam)
+    {
+        EventCatalog.DecodeDurabilityRange(opParam, out var min, out var max, out var pct);
+        return "（" + min + "~" + max + " 处防御工事或门窗耐久各-" + pct + "%）";
+    }
+
+    private static string Fmt(double v) => v.ToString("0.###");
 
     /// <summary>事件基础 RewardSet 行 Id = 99250 + 目录序（N1=99250 … D3=99294）。</summary>
     public static int BaseRewardSetIdOf(EventDef e)
@@ -139,7 +171,7 @@ public static class InjectorMapping
         var labels = choice ? e.Reward.Choices.Select(c => c.Label).ToList() : new List<string>();
         var sons = choice ? SonIdsOf(e.Id) : new List<int>();
         return EventRowCore(
-            id: e.Id, name: e.Title, des: e.Dialogue, icon: IconFieldOf(e.Icon),
+            id: e.Id, name: e.Title, des: DesOf(e), icon: IconFieldOf(e.Icon),
             demoTwoMode: choice ? 3 : 2, type: choice ? 1 : 2, popUpType: choice ? 3 : 1,
             dayCd: choice ? 3 : 1, canRepeat: true, countdown: choice ? 60 : 0, isSon: false,
             labels: labels, choseIds: sons, def: sons.Count > 0 ? sons[sons.Count - 1] : 0,

@@ -53,8 +53,8 @@ public sealed class InjectorMappingTests
 
         // Icon=原生约定格式（T18）：ResolveIconDir 剥 Assets/RuntimeAssets/Texture/ 前缀转
         // ../../Res/Icon/ds_g1，webui-core RES_IMG_EXTS 自动重试 .webp 命中落盘文件；无扩展名
-        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_g1", row["Icon"]);
-        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_g1", row["IconEnd"]);
+        Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_g1", row["Icon"]);
+        Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_g1", row["IconEnd"]);
 
         Assert.Equal("我知道了", row["OKDes_Local"]);
     }
@@ -134,7 +134,7 @@ public sealed class InjectorMappingTests
             var row = InjectorMapping.EventRow(e);
             // T18 原生约定：IconPrefix+裸名去扩展名（IconFieldOf 单一合成点）
             Assert.Equal(InjectorMapping.IconFieldOf(e.Icon), (string)row["Icon"]);
-            Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_" + e.Key, (string)row["Icon"]);   // 无 .webp 后缀
+            Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_" + e.Key, (string)row["Icon"]);   // 无 .webp 后缀
         }
     }
 
@@ -268,7 +268,7 @@ public sealed class InjectorMappingTests
         Assert.Equal(0, first["StartRewardSetId"]);
         Assert.Equal(0, first["ConditionSetId"]);
         Assert.Equal(InjectorMapping.IconFieldOf(ById(EventCatalog.Ids.L1).Icon), (string)first["Icon"]);
-        Assert.Equal("Assets/RuntimeAssets/Texture/Icon/ds_l1", (string)first["Icon"]);
+        Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_l1", (string)first["Icon"]);
 
         // H3 两子事件：99248 追→99298、99249 算了→99299
         Assert.Equal(99298, InjectorMapping.SonEventRow(EventCatalog.SonEvents[3])["RewardSetId"]);
