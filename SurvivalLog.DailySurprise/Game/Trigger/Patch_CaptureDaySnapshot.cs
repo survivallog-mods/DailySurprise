@@ -23,6 +23,7 @@ internal static class Patch_CaptureDaySnapshot
     {
         try
         {
+            if (!DsConfig.MasterEnabled) return;   // 总开关关：连 hook 痕迹都不留（结算链同小时门退位语义）
             LastFire = DateTime.Now;
             var triggerHour = DsConfig.TriggerHourValue;
             if (triggerHour > 0)

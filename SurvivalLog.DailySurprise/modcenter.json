@@ -1,0 +1,208 @@
+{
+  "mcSpec": 2,
+  "suite": true,
+  "id": "com.local.survivallog.dailysurprise",
+  "display": "喜从天降",
+  "en": "DailySurprise",
+  "summary": "每个游戏日睡醒随机降临一个天降事件：好运/平淡/霉运三轴掷骰，45 个事件全量首发，难度五档一键切换。",
+  "usage": {
+    "intro": "每个游戏日睡醒时随机降临一个「天降事件」——好运（物资/buff）、平淡或霉运（debuff/损失），给重复的生存日常加「每天开箱」的期待感。",
+    "sections": [
+      {
+        "heading": "怎么用",
+        "bullets": [
+          "装好即用，无需设置；仅灾后生效（普通档 + 无尽档），灾前序章完全静默",
+          "每天至多一次，默认凌晨 1 点睡醒后触发（「触发小时」可改，0=日结算时立即触发）",
+          "同一天读档重睡不会重复触发；整体基调偏奖励、黑色幽默生活流",
+          "难度档一键切换：想天天开箱爽选幸运儿/顺风局，想给长期档加压力选命运多舛/厄运缠身"
+        ]
+      },
+      {
+        "heading": "提示",
+        "bullets": [
+          "45 个事件：平淡 5 / 好运 22 / 霉运 18；好运内分普通→稀有→史诗→传说，霉运内分轻度→中度→重度→灾厄",
+          "连续霉运有保底（难度 4/5 档外），连续 N 天霉运后强制好运一天",
+          "永久负面事件有心结/代价/低语各 1 次的上限，达上限自动换替补；也可用「允许永久负面」整体关闭",
+          "事件卡未弹出时（气泡模式/极端兜底）奖励照发不丢；背包满自动挂账，下次进档补发",
+          "总开关关闭 = 立即停止全部天降事件；已获得的 buff/物品按游戏自身数据自然消退"
+        ]
+      }
+    ]
+  },
+  "groups": [
+    {
+      "title": "难度与运势",
+      "order": 1,
+      "items": [
+        {
+          "key": "General:Difficulty",
+          "label": "难度档",
+          "badge": "now",
+          "type": "sel",
+          "order": 10,
+          "note": "幸运儿/顺风局偏奖励，命运多舛/厄运缠身偏压力；改完下一次触发即按新档。自定义=手动调下面五项。"
+        }
+      ]
+    },
+    {
+      "title": "自定义档参数（难度选「自定义」时生效）",
+      "order": 2,
+      "items": [
+        {
+          "key": "General:CustomGoodPercent",
+          "label": "好运天数百分比",
+          "badge": "now",
+          "type": "int",
+          "def": 45,
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "order": 20,
+          "vis": { "key": "General:Difficulty", "value": "自定义" },
+          "note": "三项百分比之和须=100，非法回退档 3。"
+        },
+        {
+          "key": "General:CustomPlainPercent",
+          "label": "平淡天数百分比",
+          "badge": "now",
+          "type": "int",
+          "def": 25,
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "order": 21,
+          "vis": { "key": "General:Difficulty", "value": "自定义" }
+        },
+        {
+          "key": "General:CustomBadPercent",
+          "label": "霉运天数百分比",
+          "badge": "now",
+          "type": "int",
+          "def": 30,
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "order": 22,
+          "vis": { "key": "General:Difficulty", "value": "自定义" },
+          "note": "允许 0=纯抽奖模式（只出好运或平淡）。"
+        },
+        {
+          "key": "General:CustomRewardMultiplier",
+          "label": "奖励倍率",
+          "badge": "now",
+          "type": "float",
+          "def": 1,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.05,
+          "order": 23,
+          "vis": { "key": "General:Difficulty", "value": "自定义" },
+          "note": "只缩放物品数量（四舍五入，下限 1）；buff 时长不缩放。"
+        },
+        {
+          "key": "General:CustomLossMultiplier",
+          "label": "损失倍率",
+          "badge": "now",
+          "type": "float",
+          "def": 1,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.05,
+          "order": 24,
+          "vis": { "key": "General:Difficulty", "value": "自定义" },
+          "note": "只缩放耐久/被偷数量/属性损失；debuff 时长不缩放。"
+        }
+      ]
+    },
+    {
+      "title": "触发与表现",
+      "order": 3,
+      "items": [
+        {
+          "key": "General:TriggerHour",
+          "label": "触发小时",
+          "badge": "now",
+          "type": "int",
+          "def": 1,
+          "min": 0,
+          "max": 23,
+          "step": 1,
+          "order": 40,
+          "note": "每天游戏内几点触发（1=凌晨 1 点睡醒后）；0=日结算时立即触发。"
+        },
+        {
+          "key": "General:ShowPlainPopup",
+          "label": "平淡事件弹卡",
+          "badge": "now",
+          "type": "bool",
+          "def": true,
+          "order": 41,
+          "note": "关闭后平淡事件不拉事件卡，改为主角头顶气泡播台词（记账照常）。"
+        },
+        {
+          "key": "General:AllowPermanentNegative",
+          "label": "允许永久负面",
+          "badge": "now",
+          "type": "bool",
+          "def": true,
+          "order": 42,
+          "note": "关闭后心结/代价/低语全部走替补（重病/雷击/管道爆裂），不再消耗永久负面上限。"
+        }
+      ]
+    },
+    {
+      "title": "调试（验完删除）",
+      "order": 90,
+      "items": [
+        {
+          "key": "General:DebugForceEventId",
+          "label": "强制触发事件 ID",
+          "badge": "now",
+          "type": "int",
+          "def": 0,
+          "order": 90,
+          "note": "0=关闭；>0=进档且表就绪后强制触发一次（99200~99244），结果写 trace\\force.txt。"
+        },
+        {
+          "key": "General:DebugCardType",
+          "label": "强制事件卡类型",
+          "badge": "now",
+          "type": "int",
+          "def": -1,
+          "min": -1,
+          "max": 2,
+          "step": 1,
+          "order": 91,
+          "note": "-1=自动（直发=Result/选项=Task）；0=Condition 1=Task 2=Result。"
+        },
+        {
+          "key": "General:DebugForceEventKey",
+          "label": "强制弹指定事件",
+          "badge": "now",
+          "type": "sel",
+          "def": "关闭",
+          "order": 92,
+          "note": "选具体事件=进档后强制弹该事件卡一次（仅展示不发放不记账）。"
+        },
+        {
+          "key": "General:DebugHourlyPopup",
+          "label": "每小时随机弹卡",
+          "badge": "now",
+          "type": "bool",
+          "def": false,
+          "order": 93,
+          "note": "每个游戏小时随机弹一个事件卡（45 选 1，仅展示不发放不记账）。"
+        },
+        {
+          "key": "General:DebugRandomDailyHour",
+          "label": "每天触发小时随机",
+          "badge": "now",
+          "type": "bool",
+          "def": false,
+          "order": 94,
+          "note": "每日掷 1~23 一次，覆盖「触发小时」。"
+        }
+      ]
+    }
+  ]
+}

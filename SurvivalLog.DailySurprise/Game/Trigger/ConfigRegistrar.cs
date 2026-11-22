@@ -51,6 +51,7 @@ internal static class ConfigRegistrar
     /// 逐行装配注册 → registrar.txt 记账。任何异常只废本轮，不影响原生流程。</summary>
     internal static void EnsureRegistered(GameCore.HotUpdate.Battle.Logic.DynamicEventManager dem, string source)
     {
+        if (!DsConfig.MasterEnabled) return;   // 总开关关：不注册快照（postfix/ticker 两通道同闸）
         var configs = TryGet(() => dem.Configs);
         if (configs == null) return;   // Configs 未建（战斗未开始）：ticker/postfix 下轮再试
 

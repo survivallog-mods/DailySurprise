@@ -20,6 +20,8 @@
     <!-- Art\*.webp：Task 11 图片生产线 v2（4:3 横版 1536×1152 WebP，对齐官方原生事件图）；
          目录未建时 glob 匹配空集不报错 -->
     <EmbeddedResource Include="Art\*.webp" />
+    <!-- ModCenter mcSpec 2 声明式配置清单（套件标准，2026-11-15 起）：内嵌后 ModCenter 反射读取渲染面板页 -->
+    <EmbeddedResource Include="modcenter.json" />
   </ItemGroup>
 
   <ItemGroup>
