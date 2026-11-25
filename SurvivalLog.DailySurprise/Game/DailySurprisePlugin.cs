@@ -23,7 +23,7 @@ public sealed class DailySurprisePlugin : BasePlugin
     public override void Load()
     {
         Log = base.Log;
-        DsConfig.Init(Config);   // cfg 全 12 项（General.Enabled 总开关 + spec §7.4 正式 8 项 + TriggerHour + 调试 DebugForceEventId/DebugCardType）集中绑定，热更=实时取值
+        DsConfig.Init(Config);   // cfg 全 11 项（General.Enabled 总开关 + spec §7.4 正式 7 项 + TriggerHour + 调试 DebugForceEventId/DebugCardType）集中绑定，热更=实时取值
         TempTest.Init(Config);   // 临时测试开关（DebugRandomDailyHour/DebugHourlyPopup，验完随 TempTestSwitches.cs 删除）
 
         // 自证文件 trace\_DONE.txt（内容=GUID+时间戳，硬规则9：不依赖 LogOutput.log）
@@ -152,7 +152,7 @@ internal static class SpikeForce
             var def = DailyFlow.FindEvent(id);
             if (def == null) return;
             var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
-            if (DailyFlow.NeedsBubbleGrant(PresentationKind.EventCard, channel))
+            if (DailyFlow.NeedsBubbleGrant(channel))
             {
                 var res = RewardExecutor.Grant(def.Reward, p, new System.Random(), "force event=" + id + " bubble");
                 if (def.Reward is { RunsTopLevelOp: true })

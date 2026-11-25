@@ -4,8 +4,8 @@ using Xunit;
 
 namespace SurvivalLog.DailySurprise.Tests;
 
-/// <summary>DailyFlow 纯函数规格测试（Task 7，spec §5.1 主流程 + §5.4 防劝退 + §8.1 平淡静音）：
-/// ShouldTrigger（同日幂等/新日/灾前门控）、Presentation（平淡档 ShowPlainPopup=false 静音为头顶气泡）、
+/// <summary>DailyFlow 纯函数规格测试（Task 7，spec §5.1 主流程 + §5.4 防劝退）：
+/// ShouldTrigger（同日幂等/新日/灾前门控）、NeedsBubbleGrant（气泡路径代码发奖判定）、
 /// NextState（BadStreak 记账/保底清零/永久名额/替补不占/昨日对照/灾厄统计）。
 /// 事件事实用真实 EventCatalog（已源链接）——DisasterCount 的 Rarity==3 判定不造重复数据。</summary>
 public sealed class DailyFlowLogicTests
@@ -45,34 +45,18 @@ public sealed class DailyFlowLogicTests
         Assert.False(DailyFlow.ShouldTrigger(s, day: 1, postDisaster: false));
     }
 
-    // —— Presentation：平淡静音表 ——
-
-    [Theory]
-    [InlineData(LuckKind.Plain, false, PresentationKind.HeadTalk)]   // 平淡+静音 → 头顶气泡（记账照常）
-    [InlineData(LuckKind.Plain, true, PresentationKind.EventCard)]   // 平淡+弹窗 → 事件卡
-    [InlineData(LuckKind.Good, false, PresentationKind.EventCard)]   // 好运任意开关 → 事件卡
-    [InlineData(LuckKind.Good, true, PresentationKind.EventCard)]
-    [InlineData(LuckKind.Bad, false, PresentationKind.EventCard)]    // 霉运任意开关 → 事件卡
-    [InlineData(LuckKind.Bad, true, PresentationKind.EventCard)]
-    public void Presentation_TableDriven(LuckKind kind, bool showPlainPopup, PresentationKind want)
-    {
-        Assert.Equal(want, DailyFlow.Presentation(kind, showPlainPopup));
-    }
-
-    /// <summary>气泡路径代码发奖判定（T18 fix#1 表驱动）：事件卡未显示（平淡静音气泡，或
-    /// 事件卡全通道失败转气泡兜底）→ 声明式奖励没有载体（卡不显示=原生不结算），代码路径照发；
-    /// 卡通道成功（含选项卡）→ 原生声明式结算，代码停发（T18 防双发口径不变）。
+    /// <summary>气泡路径代码发奖判定（T18 fix#1 表驱动）：事件卡全通道失败转气泡兜底 → 声明式奖励
+    /// 没有载体（卡不显示=原生不结算），代码路径照发；卡通道成功（含选项卡）→ 原生声明式结算，
+    /// 代码停发（T18 防双发口径不变）。A2 起平淡事件同样走事件卡，原"平淡静音气泡"路径取消。
     /// 落空（EventId=0，def=null）：Grant(null)=空操作，判定值不产生副作用（按气泡侧取 true）。</summary>
     [Theory]
-    [InlineData(PresentationKind.HeadTalk, CardChannel.C1, true)]    // 平淡静音气泡（通道未尝试）
-    [InlineData(PresentationKind.HeadTalk, CardChannel.C4, true)]    // 平淡静音气泡（通道参数无关）
-    [InlineData(PresentationKind.EventCard, CardChannel.None, true)] // 事件卡全通道失败 → 气泡兜底
-    [InlineData(PresentationKind.EventCard, CardChannel.C1, false)]  // 卡成功：原生结算（C2/C3/C4/Heal 同）
-    [InlineData(PresentationKind.EventCard, CardChannel.Heal, false)]
-    [InlineData(PresentationKind.EventCard, CardChannel.C4, false)]
-    public void NeedsBubbleGrant_TableDriven(PresentationKind presentation, CardChannel channel, bool want)
+    [InlineData(CardChannel.None, true)]     // 事件卡全通道失败 → 气泡兜底
+    [InlineData(CardChannel.C1, false)]      // 卡成功：原生结算（C2/C3/Heal 同）
+    [InlineData(CardChannel.Heal, false)]
+    [InlineData(CardChannel.C4, false)]
+    public void NeedsBubbleGrant_TableDriven(CardChannel channel, bool want)
     {
-        Assert.Equal(want, DailyFlow.NeedsBubbleGrant(presentation, channel));
+        Assert.Equal(want, DailyFlow.NeedsBubbleGrant(channel));
     }
 
     // —— NextState：记账规则 ——

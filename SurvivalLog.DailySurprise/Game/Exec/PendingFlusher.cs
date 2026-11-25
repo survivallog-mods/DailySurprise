@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace SurvivalLog.DailySurprise;
 
 /// <summary>PendingRewards 补发链（Task 8；spec §5.2 延迟发放路径）：
-/// **T18 fix#1 起恢复在役**：气泡直发路径（平淡静音 / 事件卡全通道失败兜底——NeedsBubbleGrant）
+/// **T18 fix#1 起恢复在役**：气泡直发路径（事件卡全通道失败兜底——NeedsBubbleGrant）
 /// 的奖励由 RewardExecutor 代码发放，背包拒收即挂账、进档后本链补发；事件卡路径入包归原生
 /// 结算（不产生本链挂账）。T18 主提交期间曾短暂闲置（代码全停发），fix#1 随气泡兜底一起复活。
 /// 进档后（ticker 就绪时）**先于每日触发**补发挂账队列——逐条 RewardExecutor.Grant

@@ -131,15 +131,6 @@
           "note": "每天游戏内几点触发（1=凌晨 1 点睡醒后）；0=日结算时立即触发。"
         },
         {
-          "key": "General:ShowPlainPopup",
-          "label": "平淡事件弹卡",
-          "badge": "now",
-          "type": "bool",
-          "def": true,
-          "order": 41,
-          "note": "关闭后平淡事件不拉事件卡，改为主角头顶气泡播台词（记账照常）。"
-        },
-        {
           "key": "General:AllowPermanentNegative",
           "label": "允许永久负面",
           "badge": "now",

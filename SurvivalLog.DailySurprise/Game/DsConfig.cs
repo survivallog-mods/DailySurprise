@@ -3,8 +3,8 @@ using BepInEx.Logging;
 
 namespace SurvivalLog.DailySurprise;
 
-/// <summary>cfg 静态包装（spec §7.4 最终暴露面 8 项 + TriggerHour（Task 14 定时触发）
-/// + 调试 DebugForceEventId/DebugCardType）。
+/// <summary>cfg 静态包装（spec §7.4 最终暴露面 7 项 + TriggerHour（Task 14 定时触发）
+/// + 调试 DebugForceEventId/DebugCardType；ShowPlainPopup 已随 A2 取消——平淡事件同样弹卡）。
 /// 只做 Bind 与取值转发：所有键读取时实时取 <see cref="ConfigEntry{T}.Value"/>
 /// （BepInEx cfg 文件改动即生效=热更，无需 SettingChanged 订阅缓存）；
 /// 数值合法性（Difficulty 越界/自定义三概率和≠100）由 DifficultyTable.Resolve 回退档 3
@@ -22,7 +22,6 @@ internal static class DsConfig
     internal static ConfigEntry<int> CustomBadPercent;
     internal static ConfigEntry<double> CustomRewardMultiplier;
     internal static ConfigEntry<double> CustomLossMultiplier;
-    internal static ConfigEntry<bool> ShowPlainPopup;
     internal static ConfigEntry<bool> AllowPermanentNegative;
     internal static ConfigEntry<int> TriggerHour;
 
@@ -58,8 +57,6 @@ internal static class DsConfig
         CustomLossMultiplier = config.Bind("General", "CustomLossMultiplier", 1.0,
             new ConfigDescription("档 6 自定义：损失倍率（0.1~5.0），缩放耐久/偷窃/属性损失。",
                 new AcceptableValueRange<double>(0.1, 5.0)));
-        ShowPlainPopup = config.Bind("General", "ShowPlainPopup", true,
-            "平淡档弹窗开关：false=平淡事件不拉事件卡，改为主角头顶气泡播台词（记账照常）。");
         TriggerHour = config.Bind("General", "TriggerHour", 1,
             new ConfigDescription("每天游戏内几点触发（1=凌晨1点睡醒后），0=日结算时立即触发。范围 0~23，越界值自动夹回并提示。",
                 new AcceptableValueRange<int>(0, 23)));
@@ -105,8 +102,6 @@ internal static class DsConfig
         RewardMultiplier = CustomRewardMultiplier?.Value ?? 1.0,
         LossMultiplier = CustomLossMultiplier?.Value ?? 1.0,
     };
-
-    internal static bool PlainPopupEnabled => ShowPlainPopup?.Value ?? true;
 
     /// <summary>定时触发小时（Task 14）：0=旧行为（结算即触发）；1~23=每天游戏内该小时后触发。
     /// 越界值夹回 [0,23] 并经 Warn 留痕（节流）——非法值不得让"结算通道退位+小时门失灵"同时发生。</summary>

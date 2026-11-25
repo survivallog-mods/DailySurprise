@@ -2,14 +2,6 @@ using System;
 
 namespace SurvivalLog.DailySurprise;
 
-/// <summary>触发展示形态（spec §8.1 平淡静音）：平淡档 ShowPlainPopup=false 时不拉事件卡，
-/// 改为主角头顶气泡（台词照播、记账照常）；好运/霉运永远走事件卡。</summary>
-public enum PresentationKind
-{
-    EventCard,
-    HeadTalk,
-}
-
 /// <summary>事件卡展示通道（Task 14 回退链的胜利通道，CardChannel.None=全失败走头顶气泡兜底）。
 /// 通道序：C1 TryForce(id,false) → Heal 自愈拍零后重试 C1 → C2 TryForce(id,true) →
 /// C3 ForceTrigger(id,true)（void，无异常=视为成功）→ C4 TriggerEventUI（void，同前）。
@@ -81,18 +73,13 @@ internal static partial class DailyFlow
     internal static bool ShouldTrigger(RollState s, int day, bool postDisaster) =>
         postDisaster && day != s.LastTriggeredDay;
 
-    /// <summary>展示形态（spec §8.1）：平淡档且 ShowPlainPopup=false → 头顶气泡；其余一律事件卡。</summary>
-    internal static PresentationKind Presentation(LuckKind kind, bool showPlainPopup) =>
-        kind == LuckKind.Plain && !showPlainPopup ? PresentationKind.HeadTalk : PresentationKind.EventCard;
-
-    /// <summary>气泡路径代码发奖判定（T18 fix#1 Controller 裁定：显示走气泡、奖励照发）：
-    /// 事件卡未显示——平淡静音气泡（presentation=HeadTalk，通道未尝试），或事件卡全通道失败
-    /// （channel=None）转气泡兜底——声明式奖励没有载体（卡不显示=原生 FSM 不结算 RewardSetId），
+    /// <summary>气泡路径代码发奖判定（T18 fix#1 Controller 裁定：显示走气泡、奖励照发）：事件卡全通道
+    /// 失败（channel=None）转气泡兜底——声明式奖励没有载体（卡不显示=原生 FSM 不结算 RewardSetId），
     /// 由 RewardExecutor 保留代码路径照发（Items/Buffs/Attrs/PermBuffByTier/RandomPickOne 全形状，
     /// Op 系经 Grant 内 RunsTopLevelOp 分流照跑）。卡通道成功（含选项卡）→ 原生声明式结算，
-    /// 代码停发（T18 防双发口径不变）。落空（def=null）：Grant 空操作，判定值无副作用。</summary>
-    internal static bool NeedsBubbleGrant(PresentationKind presentation, CardChannel channel) =>
-        presentation == PresentationKind.HeadTalk || channel == CardChannel.None;
+    /// 代码停发（T18 防双发口径不变）。A2 起平淡事件同样走事件卡——原"平淡静音气泡"路径取消
+    /// （PresentationKind/Presentation 随之移除）。落空（def=null）：Grant 空操作，判定值无副作用。</summary>
+    internal static bool NeedsBubbleGrant(CardChannel channel) => channel == CardChannel.None;
 
     /// <summary>定时小时门（Task 14，TriggerHour&gt;0 时）：新一天（day 越过已触发日）且当前
     /// 游戏内小时到点（hour &gt;= TriggerHour）→ true。TriggerHour&lt;=0（旧行为）恒 false——
