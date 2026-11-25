@@ -3,3 +3,4 @@ obj/
 release/
 plugins-data/
 .superpowers/
+coscli_output/
