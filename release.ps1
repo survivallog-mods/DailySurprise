@@ -1,6 +1,6 @@
 # ============ Per-mod release pipeline (self-contained) ============
 # Usage: .\release.ps1 [-Yes] [-PackageOnly]
-#   (default)  dry-run: all gates + build + package (PluginOnly+Full) + update.json; NO tag/release/COS
+#   (default)  dry-run: all gates + build + package + update.json; NO tag/release/COS
 #   -Yes       full release: dry-run steps + versions ledger + tag/GitHub release + COS upload
 #   -PackageOnly  build+package+update.json only (suite publish uses this); no CHANGELOG/dirty-tree gate
 # Version authority: csproj <Version> (author-edited); Core/Ds.cs Version const must match.
@@ -67,49 +67,32 @@ if ($LASTEXITCODE -ne 0) { throw ('build failed: ' + $modName) }
 $dll = Join-Path $proj ('bin\Release\SurvivalLog.' + $modName + '.dll')
 if (-not (Test-Path $dll)) { throw ('dll missing: ' + $dll) }
 
-# ---- 5. package: PluginOnly + Full (Full = suite Base bundle + dll + README) ----
+# ---- 5. package: single plugin zip (BepInEx\plugins\dll + README), suite naming; no BepInEx base ----
 $relDir = Join-Path $repoDir 'release'
 New-Item $relDir -ItemType Directory -Force | Out-Null
-$baseDir = Get-ChildItem (Join-Path $root 'suite\release') -Directory -Filter 'SurvivalLog.Base_v*' |
-    Sort-Object Name -Descending | Select-Object -First 1
-if (-not $baseDir) { throw 'no SurvivalLog.Base_v* bundle dir under suite\release (needed for Full package)' }
-
-# 5a. PluginOnly zip: BepInEx\plugins\dll + README
-$pkgPo = Join-Path $env:TEMP ('slpkg_' + $modName + '_po_v' + $ver)
-if (Test-Path $pkgPo) { Remove-Item $pkgPo -Recurse -Force }
-New-Item (Join-Path $pkgPo 'BepInEx\plugins') -ItemType Directory -Force | Out-Null
-Copy-Item $dll (Join-Path $pkgPo 'BepInEx\plugins') -Force
+$pkg = Join-Path $env:TEMP ('slpkg_' + $modName + '_v' + $ver)
+if (Test-Path $pkg) { Remove-Item $pkg -Recurse -Force }
+New-Item (Join-Path $pkg 'BepInEx\plugins') -ItemType Directory -Force | Out-Null
+Copy-Item $dll (Join-Path $pkg 'BepInEx\plugins') -Force
 # no preset cfg (first run generates defaults)
-Copy-Item (Join-Path $repoDir 'ReleaseREADME.md') (Join-Path $pkgPo 'README.md') -Force
-$zipPo = Join-Path $relDir ('SurvivalLog.' + $modName + '_v' + $ver + '_PluginOnly.zip')
-if (Test-Path $zipPo) { Remove-Item $zipPo -Force }
-Compress-Archive -Path (Join-Path $pkgPo '*') -DestinationPath $zipPo -CompressionLevel Optimal
-
-# 5b. Full zip: Base bundle + dll + README (mod README replaces base readme)
-$pkgFull = Join-Path $env:TEMP ('slpkg_' + $modName + '_full_v' + $ver)
-if (Test-Path $pkgFull) { Remove-Item $pkgFull -Recurse -Force }
-New-Item $pkgFull -ItemType Directory -Force | Out-Null
-Copy-Item (Join-Path $baseDir.FullName '*') $pkgFull -Recurse -Force
-New-Item (Join-Path $pkgFull 'BepInEx\plugins') -ItemType Directory -Force | Out-Null
-Copy-Item $dll (Join-Path $pkgFull 'BepInEx\plugins') -Force
-Copy-Item (Join-Path $repoDir 'ReleaseREADME.md') (Join-Path $pkgFull 'README.md') -Force
-$zipFull = Join-Path $relDir ('SurvivalLog.' + $modName + '_v' + $ver + '_Full.zip')
-if (Test-Path $zipFull) { Remove-Item $zipFull -Force }
-Compress-Archive -Path (Join-Path $pkgFull '*') -DestinationPath $zipFull -CompressionLevel Optimal
+Copy-Item (Join-Path $repoDir 'ReleaseREADME.md') (Join-Path $pkg 'README.md') -Force
+$zip = Join-Path $relDir ('SurvivalLog.' + $modName + '_v' + $ver + '.zip')
+if (Test-Path $zip) { Remove-Item $zip -Force }
+Compress-Archive -Path (Join-Path $pkg '*') -DestinationPath $zip -CompressionLevel Optimal
 
 # ---- 6. update.json (contract: mod/version/asset/md5/gamekb) ----
-# Full zip is the primary asset (new-player default). CHANGELOG section of this
+# The zip is the primary asset (panel install/update downloads it). CHANGELOG section of this
 # version is the single source of release notes -> update.json.notes + GitHub body.
-$md5 = (Get-FileHash $zipFull -Algorithm MD5).Hash.ToLower()
+$md5 = (Get-FileHash $zip -Algorithm MD5).Hash.ToLower()
 $gk = Get-ChildItem (Join-Path $root 'gamekb') -Directory | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}_\d+$' } | Sort-Object Name -Descending | Select-Object -First 1
 if (-not $gk) { throw 'no gamekb snapshot under <root>\gamekb' }
 $notes = [regex]::Match($logTxt, ('(?s)##\s*v' + [regex]::Escape($ver) + '\b.*?(?=\r?\n(---|#{1,2}\s)|\z)')).Value.Trim()
-$uj = @{ mod = $modName; version = $ver; asset = (Split-Path $zipFull -Leaf); md5 = $md5; gamekb = $gk.Name; notes = $notes } | ConvertTo-Json
+$uj = @{ mod = $modName; version = $ver; asset = (Split-Path $zip -Leaf); md5 = $md5; gamekb = $gk.Name; notes = $notes } | ConvertTo-Json
 $updatePath = Join-Path $env:TEMP 'update.json'
 [IO.File]::WriteAllText($updatePath, $uj, (New-Object Text.UTF8Encoding($false)))
 Write-Host $uj
-if ($PackageOnly) { Write-Host ('package-only done: ' + $zipPo + ' / ' + $zipFull); exit 0 }
-if (-not $Yes) { Write-Host ('=== dry-run done: ' + $zipPo + ' / ' + $zipFull + ' ==='); exit 0 }
+if ($PackageOnly) { Write-Host ('package-only done: ' + $zip); exit 0 }
+if (-not $Yes) { Write-Host ('=== dry-run done: ' + $zip + ' ==='); exit 0 }
 
 # ---- 7. versions ledger (fetch old versions.json before gh release create) ----
 # 404 = first release (start fresh); any other failure aborts (a network glitch must
@@ -128,23 +111,23 @@ try {
     if ($code -ne 404) { throw ('failed to fetch versions ledger (non-404, abort to avoid silent reset): ' + $_.Exception.Message) }
     # 404 = first release
 }
-$vrows.Insert(0, [ordered]@{ version = $ver; date = (Get-Date -Format 'yyyy-MM-dd'); notes = $notes; asset = (Split-Path $zipFull -Leaf); md5 = $md5; gamekb = $gk.Name })
+$vrows.Insert(0, [ordered]@{ version = $ver; date = (Get-Date -Format 'yyyy-MM-dd'); notes = $notes; asset = (Split-Path $zip -Leaf); md5 = $md5; gamekb = $gk.Name })
 [IO.File]::WriteAllText($versPath, ([ordered]@{ generatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); mod = $modName; versions = $vrows } | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
 
-# ---- 8. tag + GitHub release (both zips + update.json) ----
+# ---- 8. tag + GitHub release (zip + update.json) ----
 $notesFile = Join-Path $env:TEMP ('relnotes_' + $modName + '_v' + $ver + '.md')
 [IO.File]::WriteAllText($notesFile, $notes, (New-Object Text.UTF8Encoding($false)))
-& $ghExe release create ('v' + $ver) --repo ($org + '/' + $modName) --title ('v' + $ver) --notes-file $notesFile $zipFull $zipPo $updatePath
+& $ghExe release create ('v' + $ver) --repo ($org + '/' + $modName) --title ('v' + $ver) --notes-file $notesFile $zip $updatePath
 if ($LASTEXITCODE -ne 0) { throw ('gh release create failed: ' + $modName) }
 
 # ---- 9. COS mirror (zip + update.json + versions.json -> mods/<mod>/) ----
 # Failure does not abort the release (GitHub is the fallback source; players see the
 # old version for now); remediation hint printed. Upload zip first, update.json last.
 try {
-    & (Join-Path $root 'suite\tools\sync-cos.ps1') -Mod $modName -Zip $zipFull -UpdateJson $updatePath -Versions $versPath
+    & (Join-Path $root 'suite\tools\sync-cos.ps1') -Mod $modName -Zip $zip -UpdateJson $updatePath -Versions $versPath
 } catch {
     Write-Warning ('COS upload failed (GitHub release already live, players see old version for now): ' + $_.Exception.Message)
-    Write-Warning ('remediation: suite\tools\sync-cos.ps1 -Mod ' + $modName + ' -Zip ' + $zipFull + ' -UpdateJson ' + $updatePath + ' -Versions ' + $versPath)
+    Write-Warning ('remediation: suite\tools\sync-cos.ps1 -Mod ' + $modName + ' -Zip ' + $zip + ' -UpdateJson ' + $updatePath + ' -Versions ' + $versPath)
     Write-Warning ('then re-run suite root publish-index.ps1 to refresh the aggregate index')
 }
 Write-Host ('=== ' + $modName + ' v' + $ver + ' released ===')

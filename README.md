@@ -169,16 +169,15 @@
 
 ## 六、安装与卸载
 
-**前置**：Steam 正版《生存日志》（AppID 4164790）+ BepInEx 6（IL2CPP）注入链。
+**前置**：Steam 正版《生存日志》（AppID 4164790）+ BepInEx 6（IL2CPP）注入链。安装包只是插件本身，不含 BepInEx 基座，需先装好 BepInEx 6。
 
-- **Full 完整包（推荐新玩家）**：解压到游戏根目录（Steam 库 `steamapps\common\Survival Log`），自带 BepInEx 6（IL2CPP）基座，装完即用；
-- **PluginOnly 纯插件包**：已装 BepInEx 6 的玩家，把 `SurvivalLog.DailySurprise.dll` 放进 `<游戏目录>\BepInEx\plugins\`。
+- **安装**：解压 zip 到游戏根目录（Steam 库 `steamapps\common\Survival Log`），`SurvivalLog.DailySurprise.dll` 落位 `<游戏目录>\BepInEx\plugins\`；也可在 ModCenter 面板里一键安装。
 
 首次启动后 45 张事件配图自动落盘到 `<游戏目录>\SurvivalLog_Data\StreamingAssets\WebUI\Res\EventNew\ds_*.webp`（哈希校验、幂等，不覆盖游戏原生文件）。
 
 **兼容性**：与本套件其他 mod（无尽守卫、自选规划等）可同时安装——事件 / buff / 奖励表注入全走进程内存，ID 段 99200~99399 独占不撞号；不修改任何游戏文件。
 
-**卸载** = 删掉该 dll（Full 包玩家要彻底清基座：再删 `BepInEx\` 目录、`winhttp.dll`、`dotnet\` 目录）。卸载后：
+**卸载** = 删掉该 dll。卸载后：
 
 - 已获得的 buff / 物品 / 属性变化是游戏自己的数据，按其剩余时长自然消退（永久类保留——它们已是官方存档数据）；
 - mod 记账（触发日、霉运连击、永久负面计数等）留在 `BepInEx\plugins-data\DailySurprise\`（无害残留，重装即续；想彻底清就整目录删掉）；

@@ -11,8 +11,7 @@
 | 存档安全 | 不碰游戏存档结构；mod 记账存本地 JSON（`BepInEx\plugins-data\DailySurprise\`） |
 
 ## 安装
-- **Full 完整包（新玩家）**：解压到游戏根目录（Steam 库 `steamapps\common\Survival Log`），自带 BepInEx 6 基座，装完即用。
-- **PluginOnly 纯插件包**：已装 BepInEx 6 的玩家，把 `BepInEx\plugins\SurvivalLog.DailySurprise.dll` 放进游戏 `BepInEx\plugins\`，重启游戏即生效。
+- 需先装好 BepInEx 6（安装包不含基座）。解压 zip 到游戏根目录（Steam 库 `steamapps\common\Survival Log`），dll 落位 `BepInEx\plugins\`，重启游戏即生效。
 
 ## 难度怎么选
 配置文件 `BepInEx\config\com.local.survivallog.dailysurprise.cfg` 改 `Difficulty`（1~5 预设，6=自定义），保存即生效、无需重启。新玩家保持默认 3 即可；想天天开箱爽选 1/2；想给长期档加压力选 4/5。详细难度表、45 事件一览、自定义档示例见仓库 README。
@@ -28,4 +27,4 @@
 - **与其他 mod 冲突吗？** 本套件各 mod 可同装；注入全走进程内存（ID 段 99200~99399 独占），不改游戏文件。
 
 ## 卸载
-删除 `BepInEx\plugins\SurvivalLog.DailySurprise.dll` 即可（Full 包玩家再删 `BepInEx\` 目录、`winhttp.dll`、`dotnet\` 目录）。已获得的物品/buff/属性变化是游戏自己的数据，按剩余时长自然消退；mod 记账留在 `BepInEx\plugins-data\DailySurprise\`（无害，可整目录删）。
+删除 `BepInEx\plugins\SurvivalLog.DailySurprise.dll` 即可。已获得的物品/buff/属性变化是游戏自己的数据，按剩余时长自然消退；mod 记账留在 `BepInEx\plugins-data\DailySurprise\`（无害，可整目录删）。
