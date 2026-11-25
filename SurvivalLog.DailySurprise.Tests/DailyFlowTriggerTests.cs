@@ -116,35 +116,4 @@ public sealed class DailyFlowTriggerTests
     {
         Assert.Equal(want, DailyFlow.DecideVoidChannel(isLastChannel, outcome));
     }
-
-    // —— ResolveCardType：void 通道 eventType 决策（Task 16 DebugCardType 诊断）——
-    // 背景：实机 c4 TriggerEventUI(id,(DynamicEventType)2) 后探针 True（入队成功）但作者看不到
-    // 弹窗——疑 Result(2) 只进事件日志侧栏不弹模态卡，cfg 强制 0/1/2 扫描哪种类型弹卡。
-
-    [Theory]
-    [InlineData(2, -1, 2)]  // -1 自动：直发行保持 Result
-    [InlineData(1, -1, 1)]  // -1 自动：选项行保持 Task
-    [InlineData(2, 0, 0)]   // 强制 Condition
-    [InlineData(2, 1, 1)]   // 强制 Task（覆盖直发行的 Result）
-    [InlineData(1, 2, 2)]   // 强制 Result（覆盖选项行的 Task）
-    [InlineData(2, 3, 2)]   // 越界 3：保守拒绝=忽略覆盖，保持自动
-    [InlineData(1, -2, 1)]  // 越界 -2：保守拒绝=忽略覆盖，保持自动
-    public void ResolveCardType_TableDriven(int rowType, int typeOverride, int want)
-    {
-        Assert.Equal(want, DailyFlow.ResolveCardType(rowType, typeOverride, null));
-    }
-
-    [Fact]
-    public void ResolveCardType_OutOfRangeWarns_ValidValuesSilent()
-    {
-        var warned = new System.Collections.Generic.List<string>();
-
-        Assert.Equal(2, DailyFlow.ResolveCardType(2, 7, warned.Add));   // 越界拒绝仍回自动映射
-        Assert.Single(warned);                                          // 且必须 Warn 留痕（cfg 写错可见）
-
-        warned.Clear();
-        foreach (var ok in new[] { -1, 0, 1, 2 })
-            DailyFlow.ResolveCardType(2, ok, warned.Add);               // 合法值全部静默（不刷屏）
-        Assert.Empty(warned);
-    }
 }

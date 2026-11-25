@@ -100,7 +100,7 @@ internal static class PendingFlusher
     }
 
     /// <summary>补发一轮（fix round 1：**先重载再发放**——发现货点的 _state 快照可能落后磁盘，
-    /// ChannelReady 等待窗口（最长 ~60s）内 DailyFlow/SpikeForce 可能已写入新记账/新挂账）：
+    /// ChannelReady 等待窗口（最长 ~60s）内 DailyFlow 可能已写入新记账/新挂账）：
     /// 发放列表=**重载后的最新队列**（窗口期新增条目同轮发放，不丢）；逐条 Grant
     /// （RewardMult=1.0——spec 已缩放，不二次缩放），成功出队、拒收保留（Reason 用常量
     /// "补发重试"——首挂账 Reason 已含 day/event 上下文，续链防无限增长）；落盘走

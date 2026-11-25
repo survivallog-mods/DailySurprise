@@ -189,7 +189,7 @@ internal static class PunishmentOps
 
     /// <summary>D1：AllowPermanentNegative=true → 强化层随机一项五维上限属性 −round(10×mult)
     ///（AddStrengtheningValue 负值=永久、存档随行）；false → 不扣属性，施加 PickSlump(lossMult)
-    /// 行运低潮变体（自然链已由 LuckEngine 替补 D1→D2 兜住，本分流兜 DebugForceEventId 强制路径）。
+    /// 行运低潮变体（自然链已由 LuckEngine 替补 D1→D2 兜住，本分流兜掷骰后、确认前开关被关掉的路径）。
     /// 分流计划纯函数=RewardMath.PlanPermAttrLoss（Tests 种子化钉死）。</summary>
     private static string OpAttrPerm(double lossMult, Random rand)
     {

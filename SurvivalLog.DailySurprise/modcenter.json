@@ -140,60 +140,6 @@
           "note": "关闭后心结/代价/低语全部走替补（重病/雷击/管道爆裂），不再消耗永久负面上限。"
         }
       ]
-    },
-    {
-      "title": "调试（验完删除）",
-      "order": 90,
-      "items": [
-        {
-          "key": "General:DebugForceEventId",
-          "label": "强制触发事件 ID",
-          "badge": "now",
-          "type": "int",
-          "def": 0,
-          "order": 90,
-          "note": "0=关闭；>0=进档且表就绪后强制触发一次（99200~99244），结果写 trace\\force.txt。"
-        },
-        {
-          "key": "General:DebugCardType",
-          "label": "强制事件卡类型",
-          "badge": "now",
-          "type": "int",
-          "def": -1,
-          "min": -1,
-          "max": 2,
-          "step": 1,
-          "order": 91,
-          "note": "-1=自动（直发=Result/选项=Task）；0=Condition 1=Task 2=Result。"
-        },
-        {
-          "key": "General:DebugForceEventKey",
-          "label": "强制弹指定事件",
-          "badge": "now",
-          "type": "sel",
-          "def": "关闭",
-          "order": 92,
-          "note": "选具体事件=进档后强制弹该事件卡一次（仅展示不发放不记账）。"
-        },
-        {
-          "key": "General:DebugHourlyPopup",
-          "label": "每小时随机弹卡",
-          "badge": "now",
-          "type": "bool",
-          "def": false,
-          "order": 93,
-          "note": "每个游戏小时随机弹一个事件卡（45 选 1，仅展示不发放不记账）。"
-        },
-        {
-          "key": "General:DebugRandomDailyHour",
-          "label": "每天触发小时随机",
-          "badge": "now",
-          "type": "bool",
-          "def": false,
-          "order": 94,
-          "note": "每日掷 1~23 一次，覆盖「触发小时」。"
-        }
-      ]
     }
   ]
 }

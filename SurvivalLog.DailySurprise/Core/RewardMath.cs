@@ -51,8 +51,8 @@ public static class RewardMath
     /// <summary>D1 代价分流计划（纯函数，Task 9）：<paramref name="allowPermanentNegative"/>=false
     /// → 不扣属性，替补行运低潮（<see cref="PickSlump"/> 按损失倍率选 Ⅱ~Ⅴ；rand 不被消费）；
     /// true → 池内种子化随机一项属性，扣量 = −round(10×lossMult)（AwayFromZero，17.5→18，至少 −1）。
-    /// 自然触发链的关档替补由 LuckEngine（PermNegativeCap=0→D2）先行兜住；本分流兜
-    /// DebugForceEventId 强制 D1 直达执行器的路径。</summary>
+    /// 自然触发链的关档替补由 LuckEngine（PermNegativeCap=0→D2）先行兜住；本分流兜掷骰后、
+    /// 确认前开关被关掉的路径。</summary>
     public static PermAttrPlan PlanPermAttrLoss(bool allowPermanentNegative, double lossMult, Random rand)
     {
         if (!allowPermanentNegative)
@@ -120,7 +120,7 @@ public static class RewardMath
     /// <summary>补发落盘合并（fix round 1：ChannelReady 等待窗口内的丢更新防护）：
     /// 以**磁盘重载的最新 state** 为准，只把 <see cref="RollState.PendingRewards"/> 替换为补发结果
     /// （remaining=仍拒收的保留队列，null 归一空列表），其余字段（每日记账族）原样保留——
-    /// 窗口期内 DailyFlow/SpikeForce 写入的新记账与新挂账不被陈旧快照回滚。
+    /// 窗口期内 DailyFlow 写入的新记账与新挂账不被陈旧快照回滚。
     /// 纯函数：返回新 RollState，不改写入参（remaining 列表按引用收编）。
     /// Game 层 PendingFlusher 消费；配套职责：发放列表=重载后的最新列表（窗口期新增条目同轮发放）。</summary>
     public static RollState ApplyFlushResult(RollState latestFromDisk, List<PendingReward> remaining)

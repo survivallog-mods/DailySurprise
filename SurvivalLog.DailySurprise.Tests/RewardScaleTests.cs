@@ -128,7 +128,7 @@ public sealed class RewardScaleTests
     // ———————————————— 补发后合并：磁盘字段赢，只换 PendingRewards ————————————————
 
     /// <summary>fix round 1 钉（丢更新防回归）：ChannelReady 等待窗口（最长 ~60s）内其他写入者
-    /// （DailyFlow 每日记账 / SpikeForce 强制挂账）落盘的新字段——合并只替换 PendingRewards，
+    /// （DailyFlow 每日记账 / 气泡兜底挂账）落盘的新字段——合并只替换 PendingRewards，
     /// 其余字段一律磁盘为准；窗口期新增挂账条目随重发一同发放（发放列表=重载的最新列表，Game 层
     /// PendingFlusher 职责，本测试钉合并语义+输入不可变）。</summary>
     [Fact]

@@ -11,7 +11,7 @@ namespace SurvivalLog.DailySurprise;
 /// FSM 离开 DoResult 态时原生才 ExecuteRewardSet(RewardSetId)；官方代码侧结算同款监听（LoanSharkManager
 /// .OnDynamicEventEndResult 等注册同一通知码）。C4 直拉 UI 无 FSM 实例时原生查不到事件 LogError 早退——
 /// postfix 不受其早退影响照常投递。Postfix 只投递 DailyFlow.OnResultConfirmed（目录外/非 Op 事件零副作用），
-/// 全程 try/catch 隔离。挂载失败=Installed 保持 false，每日链/调试链回退旧的弹卡同帧执行（防惩罚静默丢失）。</summary>
+/// 全程 try/catch 隔离。挂载失败=Installed 保持 false，每日链回退旧的弹卡同帧执行（防惩罚静默丢失）。</summary>
 [HarmonyPatch]
 internal static class Patch_OpOnConfirm
 {

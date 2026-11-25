@@ -24,7 +24,7 @@ public static class EventCatalog
     public const int FirstSonEventId = 99245;
     public const int LastSonEventId = 99249;
 
-    /// <summary>事件 Id 速查常量（cfg DebugForceEventId / 接线层 / 测试引用）。</summary>
+    /// <summary>事件 Id 速查常量（接线层 / 测试引用）。</summary>
     public static class Ids
     {
         // 平淡（99200~99204）

@@ -76,7 +76,7 @@ public sealed class RewardSpec
 
     /// <summary>顶层 Op 是否由代码路径执行（Task 10 防双发）：选项事件（Choices 非空）的顶层
     /// 效果由子事件 RewardSet 声明式结算——H3 的 StealParts 体现在「算了」选项 ItemCost，
-    /// 代码侧（自然链路与 ForceGrant 调试链路）一律跳过。Choices null 防御=按无选项处理。</summary>
+    /// 代码侧不再执行顶层 Op。Choices null 防御=按无选项处理。</summary>
     public bool RunsTopLevelOp => Op != SpecialOp.None && (Choices == null || Choices.Count == 0);
 }
 

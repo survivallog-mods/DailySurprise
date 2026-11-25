@@ -3,8 +3,8 @@ using BepInEx.Logging;
 
 namespace SurvivalLog.DailySurprise;
 
-/// <summary>cfg 静态包装（spec §7.4 最终暴露面 7 项 + TriggerHour（Task 14 定时触发）
-/// + 调试 DebugForceEventId/DebugCardType；ShowPlainPopup 已随 A2 取消——平淡事件同样弹卡）。
+/// <summary>cfg 静态包装（spec §7.4 最终暴露面 7 项 + TriggerHour（Task 14 定时触发）；调试配置
+/// 模块已移除，ShowPlainPopup 已随 A2 取消——平淡事件同样弹卡）。
 /// 只做 Bind 与取值转发：所有键读取时实时取 <see cref="ConfigEntry{T}.Value"/>
 /// （BepInEx cfg 文件改动即生效=热更，无需 SettingChanged 订阅缓存）；
 /// 数值合法性（Difficulty 越界/自定义三概率和≠100）由 DifficultyTable.Resolve 回退档 3
@@ -24,15 +24,6 @@ internal static class DsConfig
     internal static ConfigEntry<double> CustomLossMultiplier;
     internal static ConfigEntry<bool> AllowPermanentNegative;
     internal static ConfigEntry<int> TriggerHour;
-
-    /// <summary>Task 2 起的调试强制触发（原在插件类，Task 7 起随 cfg 面收拢到本类；
-    /// <see cref="SpikeForce"/> 消费）。0=关闭。</summary>
-    internal static ConfigEntry<int> DebugForceEventId;
-
-    /// <summary>Task 16 诊断：强制 void 通道（c4 TriggerEventUI 与 C3/C4 探针）的
-    /// DynamicEventType。-1=自动（注入行 Type：直发 2=Result / 选项 1=Task）；越界值由纯侧
-    /// <see cref="DailyFlow.ResolveCardType"/> 保守拒绝（保持自动）并 Warn，本层不重复校验。</summary>
-    internal static ConfigEntry<int> DebugCardType;
 
     internal static void Init(ConfigFile config)
     {
@@ -62,11 +53,6 @@ internal static class DsConfig
                 new AcceptableValueRange<int>(0, 23)));
         AllowPermanentNegative = config.Bind("General", "AllowPermanentNegative", true,
             "永久负面事件（H1 心结/D1 代价/D3 低语）开关：false=全部走替补（H4 重病/D2 雷击/H2 管道爆裂）。");
-        DebugForceEventId = config.Bind("General", "DebugForceEventId", 0,
-            "首验调试：>0=进档且表就绪后对注入事件行强制触发一次（事件行 ID 99200~99244，如 99205=G1；99250 是 RewardSet ID 无效）。0=关闭。每进档一次只触发一次，结果写 BepInEx\\plugins-data\\DailySurprise\\trace\\force.txt。选项事件可直接强制父事件 Id（如 99224=L1 三选一、99240=H3 追/算了），点选项走子事件声明式发奖。");
-        DebugCardType = config.Bind("General", "DebugCardType", -1,
-            new ConfigDescription("诊断用：强制 void 通道（c4 弹窗与探针）的事件卡类型，扫描哪种 DynamicEventType 弹出模态卡。-1=自动（直发=2 Result / 选项=1 Task）；0=Condition 1=Task 2=Result；越界值忽略并提示。",
-                new AcceptableValueRange<int>(-1, 2)));
     }
 
     // —— 取值面（实时读 .Value；Init 前调用=默认值兜底，不抛） ——
@@ -115,10 +101,6 @@ internal static class DsConfig
             return v < 0 ? 0 : 23;
         }
     }
-
-    /// <summary>void 通道类型覆盖原始值（Task 16 诊断）：合法性（仅 -1/0/1/2）由纯侧
-    /// DailyFlow.ResolveCardType 裁定（越界=拒绝覆盖保持自动 + Warn 留痕）。</summary>
-    internal static int CardTypeOverride => DebugCardType?.Value ?? -1;
 
     /// <summary>永久负面开关：false 时 DailyFlow 把 PermNegativeCap 置 0（LuckEngine 对每个
     /// isPermNegative 命中立即走替补，等价 spec §5.4「关=走替补」）。</summary>

@@ -11,7 +11,7 @@ namespace SurvivalLog.DailySurprise;
 /// 判定=DailyFlow.HourGateReached（纯函数，Tests 钉死）：day 越过已触发日且 hour&gt;=TriggerHour。
 /// 重试节流：OnNewDay 返回 false（瞬态放弃：存档名不可达/四表未就绪）→ 不记 _firedDay，下轮重试；
 /// 定局（含同日已掷/灾前静默）→ 记 _firedDay 至当天不再投递。换档/重进档由 BattleLogicWorld 实例
-/// 身份变化感知（SpikeForce 双指纹同款思路），重置 _firedDay 防跨档误判同日。</summary>
+/// 身份变化感知，重置 _firedDay 防跨档误判同日。</summary>
 internal static class HourWatcher
 {
     private static GameCore.HotUpdate.Battle.Logic.BattleLogicWorld _armedOn;
@@ -41,9 +41,7 @@ internal static class HourWatcher
             }
             if (day <= 0) return;
 
-            // 临时测试开关（验完删）：DebugRandomDailyHour=true 时当天触发小时随机（1~23），
-            // 覆盖 TriggerHour；其余判定（HourGateReached/重试节流）原样复用
-            var triggerHour = TempTest.RandomDailyHourEnabled ? TempTest.RandomHourFor(day) : DsConfig.TriggerHourValue;
+            var triggerHour = DsConfig.TriggerHourValue;
             if (triggerHour <= 0) return;   // 0=旧行为：结算 hook 即时触发，小时门不参与
 
             if (!DailyFlow.HourGateReached(day, hour, triggerHour, _firedDay)) return;

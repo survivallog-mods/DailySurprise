@@ -42,7 +42,7 @@ internal sealed class GrantResult
 /// 全程分层 try/catch（物品/buff/属性互不连坐），发放汇总行写 trace\grants.txt。</summary>
 internal static class RewardExecutor
 {
-    /// <summary>发放一档奖励。context=诊断用途（daily 触发/补发/调试强制），可空。
+    /// <summary>发放一档奖励。context=诊断用途（每日触发/补发），可空。
     /// 通道不可达（未进档/主角缺失）时物品整条入队（不丢奖），buff/属性记 trace（下次自然触发不补——
     /// 它们与背包空间无关，失败属异常态，DailyFlow 的调用时机保证世界就绪）。</summary>
     internal static GrantResult Grant(RewardSpec spec, DifficultyParams p, Random rand, string context = null)
@@ -70,7 +70,7 @@ internal static class RewardExecutor
             // Summary 进本行 + 一行汇总另写 trace\punish.txt）。
             // Task 10 防双发：RunsTopLevelOp=Choices 非空即短路——选项事件顶层效果由子事件
             // RewardSetId 声明式结算（H3 的 StealParts 体现在「算了」选项 ItemCost 20362×10），
-            // 代码侧（自然链路+调试链路）不再执行顶层 Op
+            // 代码侧不再执行顶层 Op
             sb.Append(" op=").Append(spec.Op).Append('[')
                 .Append(PunishmentOps.Apply(spec.Op, spec.OpParam, p.LossMult, rand)).Append(']');
             acted = true;

@@ -23,8 +23,7 @@ public sealed class DailySurprisePlugin : BasePlugin
     public override void Load()
     {
         Log = base.Log;
-        DsConfig.Init(Config);   // cfg 全 11 项（General.Enabled 总开关 + spec §7.4 正式 7 项 + TriggerHour + 调试 DebugForceEventId/DebugCardType）集中绑定，热更=实时取值
-        TempTest.Init(Config);   // 临时测试开关（DebugRandomDailyHour/DebugHourlyPopup，验完随 TempTestSwitches.cs 删除）
+        DsConfig.Init(Config);   // cfg 全 9 项（General.Enabled 总开关 + spec §7.4 正式 7 项 + TriggerHour）集中绑定，热更=实时取值
 
         // 自证文件 trace\_DONE.txt（内容=GUID+时间戳，硬规则9：不依赖 LogOutput.log）
         DsTrace.Write("_DONE", Ds.Guid);
@@ -65,9 +64,9 @@ public sealed class DailySurprisePlugin : BasePlugin
     }
 }
 
-/// <summary>2s 轮询（EndlessGuard GuardTicker 同款形态）：SpikeForce 单步=表注入哨兵复查 +
-/// （cfg 开着时）强制触发一次；DayWatcher 单步=日翻兜底（Task 7）。async 状态机 MoveNext 禁挂铁律
-/// （2026-10-26 两连事故定案）与本类无关——ticker 仅轮询，Harmony 只挂普通公开方法（InstallPatches）。</summary>
+/// <summary>2s 轮询（EndlessGuard GuardTicker 同款形态）：快照注册兜底、进档补发、定时小时门、
+/// 日翻兜底各一单步。async 状态机 MoveNext 禁挂铁律（2026-10-26 两连事故定案）与本类无关——
+/// ticker 仅轮询，Harmony 只挂普通公开方法（InstallPatches）。</summary>
 internal sealed class DsTicker : MonoBehaviour
 {
     private float _acc;
@@ -79,151 +78,14 @@ internal sealed class DsTicker : MonoBehaviour
         if (_acc < 2f) return;
         _acc = 0;
         if (!DsConfig.MasterEnabled) return;   // General.Enabled 总开关（ModCenter 启停位）：一夫当关短路全部业务链
-        try { ConfigRegistrar.Step(); }   // Task 17：快照注册兜底（Configs 补注册先于任何触发/强制链；
+        try { ConfigRegistrar.Step(); }   // Task 17：快照注册兜底（Configs 补注册先于每日触发链；
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "ConfigRegistrar: " + e.Message); }  //     主通道=postfix StartBattle_AfterAgent
-        try { SpikeForce.OnStep(); }
-        catch (Exception e) { DsTrace.WriteThrottled("ticker", "SpikeForce: " + e.Message); }
-        try { TempTest.Step(); }   // 临时测试：每小时随机弹窗（DebugHourlyPopup，验完删）
-        catch (Exception e) { DsTrace.WriteThrottled("ticker", "TempTest: " + e.Message); }
         try { PendingFlusher.Step(); }   // 进档补发挂账奖励（Task 8；先于每日触发——DayWatcher 在后）
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "PendingFlusher: " + e.Message); }
         try { HourWatcher.Step(); }   // 定时小时门（Task 14：TriggerHour>0 时唯一触发源；=0 静默）
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "HourWatcher: " + e.Message); }
         try { DayWatcher.Step(); }   // 兜底日翻检测（SaveMgr 模式；TriggerHour>0 时退位只记 trace）
         catch (Exception e) { DsTrace.WriteThrottled("ticker", "DayWatcher: " + e.Message); }
-    }
-}
-
-/// <summary>强制触发器（Task 2 起常驻调试链路，Task 6 起可指向任意目录事件）：表全绿后，若
-/// DebugForceEventId&gt;0 且本档未触发过
-///（防重复=管理器实例身份 + cfg 值双指纹：进档/换档新建 BattleLogicWorld、或作者改 cfg 热更，
-/// 任一变化即重新武装）→ TryForceTriggerEvent(id) 一次，返回值与上下文写 trace\force.txt。
-/// 管理器不可达（主菜单/场景切换空窗）=本轮静默，下轮再试。</summary>
-internal static class SpikeForce
-{
-    private static GameCore.HotUpdate.Battle.Logic.DynamicEventManager _forcedOn;
-    private static int _forcedId;
-
-    internal static void OnStep()
-    {
-        var report = TableInjector.EnsureInjected();   // 未就绪=下轮再试（内部自带 try/catch+trace）
-        if (report == null) return;
-        if (!ConfigsRegistered()) return;   // 快照就绪闸（2026-11-23 根修）：Configs 补注册完成前
-                                          // TryForceTriggerEvent 查不到行恒 False——实测触发可比
-                                          // registrar postfix 早 7 秒，等注册完才触发一次，杜绝盲试
-
-        var id = DsConfig.DebugForceEventId?.Value ?? 0;
-        if (id <= 0) return;
-
-        var dem = LiveDem();
-        if (dem == null) return;                       // 未进档/世界未建，下轮再试
-
-        if (ReferenceEquals(_forcedOn, dem) && _forcedId == id) return;   // 本档已触发且 cfg 未变
-
-        // Task 14：与每日链同源的展示回退链（C1→Heal→C2→C3→C4，逐通道诊断行写 daily.txt）——
-        // 强制通道是弹窗修复的实机验证入口，单发 TryForce 在 card=False 机型上验不出修复效果
-        var channel = DailyFlow.TriggerEventCard(id, DailyFlow.FindEvent(id));
-        var ok = channel != CardChannel.None;
-        _forcedOn = dem; _forcedId = id;
-        DsTrace.Write("force", "展示回退链(" + id + ") -> " + (ok ? channel.ToString() : "全通道失败")
-            + "（" + DescribeEvent(id)
-            + "，在册 event/rewardSet/randomGroup/buff/effect=" + report.Events + "/" + report.RewardSets
-            + "/" + report.RandomGroups + "/" + report.BuffRows + "/" + report.EffectRows
-            + "。预期：直发事件弹卡——奖励清单上卡、点\"我知道了\"原生发放（StartRewardSetId 已恢复，"
-            + "数量/变体按当前难度烘焙）；选项事件（L1=99224/H3=99240）弹选项卡——点选触发子事件"
-            + "（99245~99249）声明式发奖；Op 系惩罚（M1/M3/M4/H2/D2/D1）点\"我知道了\"后执行）");
-        DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + channel);
-        ForceGrant(id, channel);   // T18 fix#1：卡成功=仅 Op 系（确认后执行）；全败=气泡兜底语义全量代码发奖
-    }
-
-    /// <summary>调试强制的发奖分流（T18 防双发 + fix#1 气泡兜底同步语义，与 DailyFlow.OnNewDay 同源）：
-    /// 卡通道成功（含选项卡）→ 物品/buff/属性/永久增益由原生 RewardSet 声明式结算（直发行
-    /// StartRewardSetId 已恢复）；Op 系（RunsTopLevelOp；选项事件顶层短路维持——H3 零件损失在
-    /// 「算了」子事件 ItemCost）A1 起同样待玩家点确认后由 Patch_OpOnConfirm 执行，本处不同帧执行
-    /// （确认补丁未挂载才回退同帧执行）；全通道失败（NeedsBubbleGrant，调试链无气泡展示、
-    /// 奖励照发）→ RewardExecutor 全量代码发奖+拒收挂账（数量=RewardSpec 基准×当前难度，
-    /// 与注入行烘焙同公式，不二次缩放；Op 系即时执行并登记防确认二次执行）。2026-11-23 起 TempTest
-    /// （DebugForceEventKey）复用本分流——下拉链与 ID 链执行语义完全一致（作者实测推翻"仅展示"旧认知：
-    /// T19 后原生卡确认即结算奖励）。</summary>
-    internal static void ForceGrant(int id, CardChannel channel)
-    {
-        try
-        {
-            var def = DailyFlow.FindEvent(id);
-            if (def == null) return;
-            var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
-            if (DailyFlow.NeedsBubbleGrant(channel))
-            {
-                var res = RewardExecutor.Grant(def.Reward, p, new System.Random(), "force event=" + id + " bubble");
-                if (def.Reward is { RunsTopLevelOp: true })
-                    DailyFlow.NoteOpAppliedWithoutCard(id);
-                if (res.Queued.Count > 0)
-                {
-                    var slotDir = DailyFlow.SlotDir();
-                    if (slotDir != null)
-                    {
-                        var st = StateStore.Load(slotDir, out _);
-                        st.PendingRewards.AddRange(res.Queued);
-                        StateStore.Save(st, slotDir);
-                    }
-                    DsTrace.Write("force", "强制发放（气泡兜底）：拒收入队 " + res.Queued.Count + " 条"
-                        + (slotDir == null ? "（存档名不可达未持久化！）" : "（已入 state.json，下次进档补发）"));
-                }
-            }
-            else if (def.Reward is { RunsTopLevelOp: true })
-            {
-                if (Patch_OpOnConfirm.Installed)
-                    DsTrace.Write("force", "强制惩罚：event=" + id + " op=" + def.Reward.Op
-                        + "@confirm（待点\"我知道了\"后执行）");
-                else
-                {
-                    // 回退（确认补丁未挂载）：旧行为——弹卡同帧执行
-                    var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, new System.Random());
-                    DsTrace.Write("force", "强制惩罚：event=" + id + " op=" + def.Reward.Op + "[" + summary + "]");
-                }
-            }
-        }
-        catch (Exception e) { DsTrace.WriteThrottled("force", "ForceGrant: " + e.Message); }
-    }
-
-    /// <summary>事件行描述（目录命中=Key+标题+样式；未命中=原样 id——目录外 id 也允许强制，
-    /// 观察原生行为用）。</summary>
-    private static string DescribeEvent(int id)
-    {
-        foreach (var e in EventCatalog.Events)
-            if (e.Id == id)
-                return e.Key + "「" + e.Title + "」" + (e.Reward is { Choices.Count: > 0 } ? "选项" : "直发");
-        return "非目录事件";
-    }
-
-    /// <summary>Configs 快照就绪闸：首事件行（99200）已在 dem.Configs 字典=补注册完成。
-    /// 注册前触发只会全通道失败（2026-11-23 00:15 实测：触发比 registrar postfix 早 7 秒）。
-    /// 任何异常=未就绪（安全向等待）。TempTest.ForceStep 同闸复用。</summary>
-    internal static bool ConfigsRegistered()
-    {
-        try
-        {
-            var dem = LiveDem();
-            if (dem == null) return false;
-            var configs = dem.Configs;
-            return configs != null && configs.ContainsKey(EventCatalog.FirstEventId);
-        }
-        catch { return false; }
-    }
-
-    /// <summary>DynamicEventManager 可达性：BattleLogicWorld 单例 → _DynamicEventManager
-    /// （internal 属性 dump.cs:385844，interop 代理公开；BaseSingleton.IsInstanceCreated 防护
-    /// ——BagTable.Cm / EndlessGuard HealModellessDevices 同款访问模式）。
-    /// Task 14 起 DailyFlow 回退链同源复用（internal）。</summary>
-    internal static GameCore.HotUpdate.Battle.Logic.DynamicEventManager LiveDem()
-    {
-        try
-        {
-            if (!GameCore.HotUpdate.BaseSingleton<GameCore.HotUpdate.Battle.Logic.BattleLogicWorld>.IsInstanceCreated)
-                return null;
-            return GameCore.HotUpdate.BaseSingleton<GameCore.HotUpdate.Battle.Logic.BattleLogicWorld>.Instance?._DynamicEventManager;
-        }
-        catch { return null; }
     }
 }
 

@@ -62,7 +62,7 @@ public sealed class PunishmentMathTests
     }
 
     /// <summary>自然触发链里 AllowPermanentNegative=false 由 LuckEngine 替补（D1→D2）先行兜住；
-    /// 本分流兜的是 DebugForceEventId 强制 D1 直达执行器的路径（实机清单最后一项）。
+    /// 本分流兜的是掷骰后、确认前开关被关掉的路径。
     /// 禁用档 rand 不被消费（可数随机）：同种子下 enabled 的随机序不受 disabled 判定影响。</summary>
     [Fact]
     public void PlanPermAttrLoss_Disabled_DoesNotConsumeRandom()

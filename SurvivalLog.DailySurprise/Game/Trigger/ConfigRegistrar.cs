@@ -38,11 +38,11 @@ internal static class ConfigRegistrar
         catch (Exception e) { DsTrace.WriteThrottled("registrar", "postfix 异常: " + e.Message); }
     }
 
-    /// <summary>ticker 兜底通道（DsTicker 每 2s，先于 SpikeForce/每日触发）：覆盖 patch 未挂载/
+    /// <summary>ticker 兜底通道（DsTicker 每 2s，先于每日触发）：覆盖 patch 未挂载/
     /// 首载行未注入（时序）两种残余场景。全绿时只做 50 次 ContainsKey，静默；有变化才留痕。</summary>
     internal static void Step()
     {
-        var dem = SpikeForce.LiveDem();
+        var dem = DailyFlow.LiveDem();
         if (dem == null) return;   // 未进档/世界未建：下轮再试
         EnsureRegistered(dem, "ticker");
     }

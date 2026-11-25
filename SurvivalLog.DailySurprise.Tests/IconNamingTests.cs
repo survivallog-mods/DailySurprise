@@ -44,7 +44,7 @@ public sealed class IconNamingTests
             Assert.Equal("Assets/RuntimeAssets/Texture/EventNew/ds_" + e.Key, field);
             Assert.Matches(NativeIconPathRegex, field);
         }
-        Assert.Equal("ds_g1.webp", ByKey("g1").Icon);   // 链路验证占位（DebugForceEventId=99205）
+        Assert.Equal("ds_g1.webp", ByKey("g1").Icon);   // 链路验证（G1=99205）
     }
 
     /// <summary>T18 备选格式开关（编译期小开关，不暴露 cfg）：当前=原生约定格式；

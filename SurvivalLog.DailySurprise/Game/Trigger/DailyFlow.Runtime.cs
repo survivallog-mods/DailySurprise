@@ -185,10 +185,10 @@ internal static partial class DailyFlow
 
     /// <summary>无卡路径（全通道失败气泡兜底）已即时执行过 Op 的事件 Id（进程内集合，按事件去重）：
     /// 卡通道探针假阴性（判全败却仍弹卡）时玩家再点确认不二次执行；同事件下次卡通道成功即解除
-    /// （TriggerEventCard.Win 清除——调试链连发/次日再触发照常确认后执行）。</summary>
+    /// （TriggerEventCard.Win 清除——同事件次日再触发照常确认后执行）。</summary>
     private static readonly HashSet<int> _opAppliedWithoutCard = new();
 
-    /// <summary>无卡路径即时执行 Op 后登记（DailyFlow.OnNewDay / SpikeForce.ForceGrant 气泡分支调用）。</summary>
+    /// <summary>无卡路径即时执行 Op 后登记（DailyFlow.OnNewDay 气泡兜底分支调用）。</summary>
     internal static void NoteOpAppliedWithoutCard(int eventId) => _opAppliedWithoutCard.Add(eventId);
 
     /// <summary>事件卡确认（Patch_OpOnConfirm postfix，原生 OnEndResult 之后）：目录事件且顶层 Op 系
@@ -240,11 +240,10 @@ internal static partial class DailyFlow
     private static int _ch1FailStreak;
     private static bool _gateHealed;
 
-    /// <summary>事件卡展示通道（Task 14 回退链，修 card=False 弹窗失败；每日链 OnNewDay 与
-    /// SpikeForce 调试强制共用）：依次尝试，每条成败/异常各写一行 trace\daily.txt（通道名+
-    /// 返回值/探针/异常摘要），成功即停；全失败返回 None（每日链走 HeadTalk 兜底 + ALL_CHANNELS_FAILED
-    /// 记行；调试链记 force.txt）。健康日（C1 直接成功）不产生额外行——daily.txt 保持"每天一行"口径，
-    /// 失败日才有通道诊断行。
+    /// <summary>事件卡展示通道（Task 14 回退链，修 card=False 弹窗失败）：依次尝试，每条成败/异常各写
+    /// 一行 trace\daily.txt（通道名+返回值/探针/异常摘要），成功即停；全失败返回 None（每日链走
+    /// HeadTalk 兜底 + ALL_CHANNELS_FAILED 记行）。健康日（C1 直接成功）不产生额外行——daily.txt
+    /// 保持"每天一行"口径，失败日才有通道诊断行。
     /// - C1：TryForceTriggerEvent(id,false)（现状通道；dump.cs:420302）；
     /// - Heal：C1 连败≥2 天且本会话未自愈 → 注入行可疑门控拍零（原生 0 值行形态）重试 C1 一次；
     /// - C2：TryForceTriggerEvent(id,true)（ignorePlayerSelect，dump.cs:420302）；
@@ -253,11 +252,10 @@ internal static partial class DailyFlow
     ///   public bool）复核：true=真入队停链 / false=继续 C4）；
     /// - C4：TriggerEventUI(id,Type,true,false)（dump.cs:420323；直拉 UI 最可能绕过触发条件；
     ///   同探针复核：true=成功 / false=HeadTalk 兜底。eventType=注入行 Type：直发 2=Result /
-    ///   选项 1=Task，DynamicEventType 枚举 dump.cs:57934；Task 16 起 DebugCardType 0/1/2
-    ///   可强制覆盖（c4 与探针同 type——实机 probe=True 却无弹窗，扫哪种类型弹模态卡））。</summary>
+    ///   选项 1=Task，DynamicEventType 枚举 dump.cs:57934）。</summary>
     internal static CardChannel TriggerEventCard(int eventId, EventDef def)
     {
-        var dem = SpikeForce.LiveDem();
+        var dem = LiveDem();
         if (dem == null)
         {
             DsTrace.Write("daily", "card: 管理器不可达（未进档/世界未建），全通道放弃 event=" + eventId);
@@ -301,15 +299,13 @@ internal static partial class DailyFlow
             DsTrace.Write("daily", "card c3 ForceTriggerEvent(" + eventId + ",true) 异常: " + e.Message);
         }
 
-        // C4（直拉 UI，链尾；同探针：true=成功 / false=落 ALL_CHANNELS_FAILED→HeadTalk 兜底。
-        // Task 16：Type=实际生效值（DebugCardType 覆盖后），force=cfg 原始值——合并进本行，行数口径不变）
+        // C4（直拉 UI，链尾；同探针：true=成功 / false=落 ALL_CHANNELS_FAILED→HeadTalk 兜底）
         try
         {
             dem.TriggerEventUI(eventId, type, true, false);
             var c4 = VoidOutcomeOf(ProbePendingUi(dem, eventId, type));
             DsTrace.Write("daily", "card c4 TriggerEventUI(" + eventId + ",Type=" + (int)type
-                + ",fresh=true) ui→probe=" + (c4 == VoidCallOutcome.ProbeTrue)
-                + " force=" + DsConfig.CardTypeOverride);
+                + ",fresh=true) ui→probe=" + (c4 == VoidCallOutcome.ProbeTrue));
             if (DecideVoidChannel(isLastChannel: true, c4) == ChannelDecision.Win) return Win(CardChannel.C4);
         }
         catch (Exception e)
@@ -347,9 +343,8 @@ internal static partial class DailyFlow
         return false;
     }
 
-    /// <summary>探针/UI 的eventType（Task 15/16）：注入行 Type 字段（直发 2=Result / 选项 1=Task，
-    /// InjectorMapping.EventRow；DynamicEventType 枚举 dump.cs:57934）经纯侧 ResolveCardType 吃
-    /// DebugCardType 覆盖（-1=自动 / 0/1/2=强制，越界拒绝保持自动+Warn——诊断弹窗形态）。
+    /// <summary>探针/UI 的eventType：注入行 Type 字段（直发 2=Result / 选项 1=Task，
+    /// InjectorMapping.EventRow；DynamicEventType 枚举 dump.cs:57934）。
     /// 行不可读/def 缺失回退 2=Result（直发主流形态）。</summary>
     private static GameCore.HotUpdate.DynamicEventType ResolveEventType(EventDef def)
     {
@@ -362,8 +357,22 @@ internal static partial class DailyFlow
         {
             rowType = 2;
         }
-        return (GameCore.HotUpdate.DynamicEventType)ResolveCardType(
-            rowType, DsConfig.CardTypeOverride, DsConfig.Warn);
+        return (GameCore.HotUpdate.DynamicEventType)rowType;
+    }
+
+    /// <summary>DynamicEventManager 可达性：BattleLogicWorld 单例 → _DynamicEventManager
+    /// （internal 属性 dump.cs:385844，interop 代理公开；BaseSingleton.IsInstanceCreated 防护
+    /// ——BagTable.Cm / EndlessGuard HealModellessDevices 同款访问模式）。
+    /// 每日链回退链（TriggerEventCard）与快照注册兜底（ConfigRegistrar.Step）共用；不可达=null。</summary>
+    internal static GameCore.HotUpdate.Battle.Logic.DynamicEventManager LiveDem()
+    {
+        try
+        {
+            if (!GameCore.HotUpdate.BaseSingleton<GameCore.HotUpdate.Battle.Logic.BattleLogicWorld>.IsInstanceCreated)
+                return null;
+            return GameCore.HotUpdate.BaseSingleton<GameCore.HotUpdate.Battle.Logic.BattleLogicWorld>.Instance?._DynamicEventManager;
+        }
+        catch { return null; }
     }
 
     /// <summary>待处理 UI 探针（Task 15）：HasPendingUIEvent(eventConfigId, eventType)

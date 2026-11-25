@@ -63,7 +63,6 @@ internal readonly struct GateFields
 /// Task 14 增：HourGateReached（TriggerHour&gt;0 定时触发门）、NeedsGateHeal/GateHealPlan
 /// （通道 1 连败的自愈决策）、FallbackHeadTalkText（全通道失败兜底文案）。
 /// Task 15 增：DecideVoidChannel（void 通道 C3/C4 的探针去留——no-op 不停链、链尾落兜底）。
-/// Task 16 增：ResolveCardType（c4/探针 eventType 的 DebugCardType 覆盖决策——诊断弹窗形态）。
 /// T18 fix#1 增：NeedsBubbleGrant（气泡路径代码发奖判定——卡未显示则声明式无载体，代码照发）。</summary>
 internal static partial class DailyFlow
 {
@@ -127,19 +126,6 @@ internal static partial class DailyFlow
         outcome == VoidCallOutcome.ProbeTrue
             ? ChannelDecision.Win
             : isLastChannel ? ChannelDecision.Fallback : ChannelDecision.Continue;
-
-    /// <summary>void 通道（C4 TriggerEventUI 与 C3/C4 探针）实际 eventType 决策（Task 16 诊断）：
-    /// typeOverride=-1=自动（注入行 Type：直发 2=Result / 选项 1=Task）；0/1/2=强制覆盖
-    /// （DynamicEventType 枚举 dump.cs:57934）。越界值保守拒绝=忽略覆盖保持自动映射并 warn 留痕
-    /// ——不夹回边界值：夹回会产生作者没要求的类型，弹窗形态扫描结论被污染；拒绝+Warn 让
-    /// cfg 写错立即可见（实机扫描 DebugCardType 依次 -1/0/1/2，错值静默夹回会得出假结论）。</summary>
-    internal static int ResolveCardType(int rowType, int typeOverride, Action<string> warn)
-    {
-        if (typeOverride >= 0 && typeOverride <= 2) return typeOverride;
-        if (typeOverride != -1)
-            warn?.Invoke("DebugCardType=" + typeOverride + " 越界（合法 -1/0/1/2），已忽略覆盖保持自动映射");
-        return rowType;
-    }
 
     /// <summary>掷骰后记账（spec §5.1/§5.4；纯函数——返回新 RollState，不改写入参）：
     /// - BadStreak：按 Kind——霉运 +1（含落空：按 Kind 记，口径=今天没有好事），好运/平淡清 0

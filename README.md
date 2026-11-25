@@ -200,8 +200,6 @@
 | General.CustomLossMultiplier | 1.0 | 档6：损失倍率（0.1~5.0），缩放耐久/被偷/属性损失 |
 | General.TriggerHour | 1 | 每天游戏内几点触发（1=凌晨1点睡醒后），0=日结算时立即触发。范围 0~23，越界自动夹回 |
 | General.AllowPermanentNegative | true | 永久负面事件（心结/代价/低语）开关：false=全部走替补（重病/雷击/管道爆裂） |
-| General.DebugForceEventId | 0 | 调试：>0=进档后强制触发指定事件一次（事件 ID 99200~99244，如 99205=G1；选项事件可直接填父事件 ID，如 99224=神秘补给箱、99240=贼影）。0=关闭。结果写 `BepInEx\plugins-data\DailySurprise\trace\force.txt` |
-| General.DebugCardType | -1 | 诊断用：强制弹窗通道（c4）与探针的事件卡类型，扫描哪种类型弹出模态卡。**-1=自动**（直发=Result/选项=Task）；0=Condition 1=Task 2=Result；越界值忽略并在 `trace\cfg.txt` 提示 |
 
 **自定义档示例**（"六成好运 + 收益加成 + 惩罚减半"的爽局）：
 
