@@ -2,7 +2,7 @@
 
 > 机制与数值权威 = spec：`../../docs/superpowers/specs/2026-11-10-daily-surprise-design.md`（已冻结；§8.8 H3 行有 2026-11-12 Controller 修订注记）。
 > 本文件累积各任务实证结论（Task 1~11 代码任务已回填；Task 12 作者实机冒烟与 §2.1/§2.2/§2.3 待回填）。
-> 版本：跟随本仓 csproj `<Version>`（占位 0.1.0；发版号由作者定，见 Task 13）。
+> 版本：跟随本仓 csproj `<Version>`（v1.0.0 首发起；与 Core/Ds.cs 的 Version const 同字面）。
 
 ## 首验记录区（各任务回填）
 

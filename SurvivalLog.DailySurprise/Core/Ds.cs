@@ -7,5 +7,5 @@ public static class Ds
 {
     public const string Guid = "com.local.survivallog.dailysurprise";
     public const string Name = "喜从天降";
-    public const string Version = "0.1.0"; // 占位：版本权威=本仓 csproj，作者才有权定版（Task 13）
+    public const string Version = "1.0.0"; // 版本权威=本仓 csproj <Version>（两处须同字面，release.ps1 发版闸校验）
 }
