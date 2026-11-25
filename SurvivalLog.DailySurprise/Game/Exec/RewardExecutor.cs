@@ -14,7 +14,8 @@ internal sealed class GrantResult
 }
 
 /// <summary>奖励执行器（Task 8 形态保留）。**调用面（T18 + fix#1）**：事件卡显示路径不再调用
-/// 物品/buff/属性路径（原生 RewardSet 声明式结算，DailyFlow/SpikeForce 只跑 Op 系→PunishmentOps）；
+/// 物品/buff/属性路径（原生 RewardSet 声明式结算；Op 系→PunishmentOps 由确认补丁 Patch_OpOnConfirm
+/// 在玩家点确认时执行，A1）；
 /// 气泡路径（平淡静音 / 事件卡全通道失败——NeedsBubbleGrant）恢复全量调用本类 Grant——显示走
 /// 气泡、奖励照发（数量=RewardSpec 基准×当前难度 RewardMult，ScaleCount 与注入行烘焙同公式，
 /// 不读注入行、不二次缩放），拒收挂账（PendingFlusher 补发）。

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using BepInEx;
 
@@ -12,7 +13,8 @@ namespace SurvivalLog.DailySurprise;
 /// C1→Heal→C2→C3→C4，全败走头顶气泡兜底 / 平淡静音 Unit_ShowHeadTalk）→ **发奖分流**
 ///（T18 防双发+fix#1：卡显示 → 物品/buff/属性/永久增益由原生 RewardSet 声明式结算——事件行
 /// RewardSetId 结果阶段挂法（T19）、行内容按当前难度烘焙，卡上显示清单、点确认后发放，代码只跑
-/// RunsTopLevelOp 的 Op 系——M1/M3/M4/H2/D2/D1 顶层，H3 顶层被 Choices 短路维持 T10 裁定；
+/// RunsTopLevelOp 的 Op 系——M1/M3/M4/H2/D2/D1 顶层，H3 顶层被 Choices 短路维持 T10 裁定——A1 起
+/// Op 系同样待玩家点确认后执行（Patch_OpOnConfirm→OnResultConfirmed，不再弹卡同帧）；
 /// 卡未显示（平淡静音气泡/全通道失败转气泡——NeedsBubbleGrant）→ RewardExecutor 保留代码路径
 /// 全量照发+拒收挂账，显示走气泡、奖励照发）→ 每天恰好一行 trace\daily.txt
 ///（day+EventId+胜利通道+op/granted/queued 标记+WorldStateType）；通道失败日额外产生逐通道诊断行。
@@ -107,11 +109,14 @@ internal static partial class DailyFlow
 
             // —— 发放（T18 防双发 + fix#1 气泡兜底）：
             //    卡显示 → 物品/buff/属性/永久增益由原生 RewardSet 声明式结算（事件行 RewardSetId
-            //    结果阶段挂法（T19）、行内容按当前难度烘焙）；代码只跑 Op 系特殊惩罚（M1/M3/M4/H2/D2/D1 顶层——
-            //    RunsTopLevelOp；H3 顶层被 Choices 短路维持 T10 裁定）。
+            //    结果阶段挂法（T19）、行内容按当前难度烘焙）；Op 系特殊惩罚（M1/M3/M4/H2/D2/D1 顶层——
+            //    RunsTopLevelOp；H3 顶层被 Choices 短路维持 T10 裁定）A1 起不再弹卡同帧执行，改由
+            //    Patch_OpOnConfirm 在玩家点"我知道了"时执行（OnResultConfirmed）——与官方 Result 卡
+            //    "奖惩同在确认后结算"同构；确认补丁未挂载才回退同帧执行（防惩罚静默丢失）。
             //    卡未显示（平淡静音气泡 / 全通道失败转气泡——NeedsBubbleGrant）→ 声明式没有载体
             //    （卡不显示=原生不结算），RewardExecutor 保留代码路径照发全形状（Items/Buffs/Attrs/
-            //    PermBuffByTier/RandomPickOne；Op 系经 Grant 内 RunsTopLevelOp 分流照跑，不双跑）。
+            //    PermBuffByTier/RandomPickOne；Op 系经 Grant 内 RunsTopLevelOp 分流即时照跑并登记
+            //    ——同事件卡再被确认不二次执行）。
             //    数量口径：Grant 从 RewardSpec 基准×p.RewardMult（ScaleCount 同烘焙公式 round 下限 1）
             //    ——注入行烘焙量与此同源，不读注入行、不二次缩放；拒收挂账走 Task 8 旧链。
             if (NeedsBubbleGrant(presentation, channel))
@@ -119,6 +124,8 @@ internal static partial class DailyFlow
                 var context = "day=" + day + " event=" + outcome.EventId
                     + (def != null ? "「" + def.Title + "」" : "") + " bubble";
                 var grant = RewardExecutor.Grant(def?.Reward, p, rand, context);
+                if (def?.Reward is { RunsTopLevelOp: true })
+                    NoteOpAppliedWithoutCard(outcome.EventId);
                 if (grant.Queued.Count > 0)
                 {
                     // 挂账持久化：入队 spec=已缩放形状（补发 RewardMult=1 原样发），追加进 PendingRewards 重存
@@ -131,10 +138,16 @@ internal static partial class DailyFlow
             }
             else if (def?.Reward is { RunsTopLevelOp: true })
             {
-                var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, rand);
-                DsTrace.Write("grants", "day=" + day + " event=" + outcome.EventId
-                    + (def != null ? "「" + def.Title + "」" : "") + " op=" + def.Reward.Op + "[" + summary + "]");
-                how += " op=" + def.Reward.Op;
+                if (Patch_OpOnConfirm.Installed)
+                    how += " op=" + def.Reward.Op + "@confirm";   // 卡已显示：待玩家点确认后执行
+                else
+                {
+                    // 回退（确认补丁未挂载）：旧行为——弹卡同帧执行
+                    var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, rand);
+                    DsTrace.Write("grants", "day=" + day + " event=" + outcome.EventId
+                        + "「" + def.Title + "」 op=" + def.Reward.Op + "[" + summary + "]");
+                    how += " op=" + def.Reward.Op;
+                }
             }
 
             DsTrace.Write("daily", "day=" + day + " kind=" + outcome.Kind + " event=" + outcome.EventId
@@ -174,6 +187,32 @@ internal static partial class DailyFlow
 
     /// <summary>最近一次读到的 WorldStateType（-1=不可达；仅诊断用途）。</summary>
     internal static int LastWorldState { get; private set; } = -1;
+
+    // —— Op 惩罚确认结算（A1）——
+
+    /// <summary>无卡路径（气泡兜底/平淡静音）已即时执行过 Op 的事件 Id（进程内集合，按事件去重）：
+    /// 卡通道探针假阴性（判全败却仍弹卡）时玩家再点确认不二次执行；同事件下次卡通道成功即解除
+    /// （TriggerEventCard.Win 清除——调试链连发/次日再触发照常确认后执行）。</summary>
+    private static readonly HashSet<int> _opAppliedWithoutCard = new();
+
+    /// <summary>无卡路径即时执行 Op 后登记（DailyFlow.OnNewDay / SpikeForce.ForceGrant 气泡分支调用）。</summary>
+    internal static void NoteOpAppliedWithoutCard(int eventId) => _opAppliedWithoutCard.Add(eventId);
+
+    /// <summary>事件卡确认（Patch_OpOnConfirm postfix，原生 OnEndResult 之后）：目录事件且顶层 Op 系
+    /// → 执行惩罚。按 EventId 现查目录、无挂账状态——读档后原生恢复的卡确认同样命中；卡未被确认
+    /// =不执行（与原生 RewardSet 同命运）。倍率与永久负面开关取确认时配置。</summary>
+    internal static void OnResultConfirmed(int eventId)
+    {
+        if (!DsConfig.MasterEnabled) return;
+        var def = FindEvent(eventId);
+        if (def?.Reward is not { RunsTopLevelOp: true }) return;
+        if (_opAppliedWithoutCard.Contains(eventId)) return;
+
+        var p = DifficultyTable.Resolve(DsConfig.Tier, DsConfig.CustomOrDefault(), DsConfig.Warn);
+        var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, new Random());
+        DsTrace.Write("grants", "确认结算：event=" + eventId + "「" + def.Title + "」 op="
+            + def.Reward.Op + "[" + summary + "]");
+    }
 
     // —— 掷骰谓词（EventCatalog 数据；候选集恒为目录事件，未知 id 防御性取值）——
 
@@ -291,6 +330,7 @@ internal static partial class DailyFlow
         CardChannel Win(CardChannel c)
         {
             _ch1FailStreak = 0;
+            _opAppliedWithoutCard.Remove(eventId);   // 本事件卡已显示：解除"无卡已执行"登记，确认后照常执行
             return c;
         }
     }

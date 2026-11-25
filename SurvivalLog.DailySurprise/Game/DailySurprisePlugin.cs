@@ -54,7 +54,12 @@ public sealed class DailySurprisePlugin : BasePlugin
         foreach (var t in typeof(DailySurprisePlugin).Assembly.GetTypes())
         {
             if (!t.IsClass || !t.IsDefined(typeof(HarmonyLib.HarmonyPatch), false)) continue;
-            try { harmony.CreateClassProcessor(t).Patch(); DsTrace.Write("daily", "patch 挂载成功：" + t.Name); }
+            try
+            {
+                harmony.CreateClassProcessor(t).Patch();
+                if (t == typeof(Patch_OpOnConfirm)) Patch_OpOnConfirm.MarkInstalled();
+                DsTrace.Write("daily", "patch 挂载成功：" + t.Name);
+            }
             catch (Exception e) { DsTrace.Write("daily", "patch 挂载失败 " + t.Name + ": " + e.Message); }
         }
     }
@@ -126,18 +131,20 @@ internal static class SpikeForce
             + "/" + report.RandomGroups + "/" + report.BuffRows + "/" + report.EffectRows
             + "。预期：直发事件弹卡——奖励清单上卡、点\"我知道了\"原生发放（StartRewardSetId 已恢复，"
             + "数量/变体按当前难度烘焙）；选项事件（L1=99224/H3=99240）弹选项卡——点选触发子事件"
-            + "（99245~99249）声明式发奖；Op 系惩罚（M1/M3/M4/H2/D2/D1）由调试链 PunishmentOps 执行）");
+            + "（99245~99249）声明式发奖；Op 系惩罚（M1/M3/M4/H2/D2/D1）点\"我知道了\"后执行）");
         DailySurprisePlugin.Log?.LogMessage("[DailySurprise] force " + id + " -> " + channel);
-        ForceGrant(id, channel);   // T18 fix#1：卡成功=仅 Op 系；全败=气泡兜底语义全量代码发奖
+        ForceGrant(id, channel);   // T18 fix#1：卡成功=仅 Op 系（确认后执行）；全败=气泡兜底语义全量代码发奖
     }
 
     /// <summary>调试强制的发奖分流（T18 防双发 + fix#1 气泡兜底同步语义，与 DailyFlow.OnNewDay 同源）：
     /// 卡通道成功（含选项卡）→ 物品/buff/属性/永久增益由原生 RewardSet 声明式结算（直发行
-    /// StartRewardSetId 已恢复），代码只跑 RunsTopLevelOp 的 Op 系（选项事件顶层短路维持——
-    /// H3 零件损失在「算了」子事件 ItemCost）；全通道失败（NeedsBubbleGrant，调试链无气泡展示、
+    /// StartRewardSetId 已恢复）；Op 系（RunsTopLevelOp；选项事件顶层短路维持——H3 零件损失在
+    /// 「算了」子事件 ItemCost）A1 起同样待玩家点确认后由 Patch_OpOnConfirm 执行，本处不同帧执行
+    /// （确认补丁未挂载才回退同帧执行）；全通道失败（NeedsBubbleGrant，调试链无气泡展示、
     /// 奖励照发）→ RewardExecutor 全量代码发奖+拒收挂账（数量=RewardSpec 基准×当前难度，
-    /// 与注入行烘焙同公式，不二次缩放）。2026-11-23 起 TempTest（DebugForceEventKey）复用本分流
-    /// ——下拉链与 ID 链执行语义完全一致（作者实测推翻"仅展示"旧认知：T19 后原生卡确认即结算奖励）。</summary>
+    /// 与注入行烘焙同公式，不二次缩放；Op 系即时执行并登记防确认二次执行）。2026-11-23 起 TempTest
+    /// （DebugForceEventKey）复用本分流——下拉链与 ID 链执行语义完全一致（作者实测推翻"仅展示"旧认知：
+    /// T19 后原生卡确认即结算奖励）。</summary>
     internal static void ForceGrant(int id, CardChannel channel)
     {
         try
@@ -148,6 +155,8 @@ internal static class SpikeForce
             if (DailyFlow.NeedsBubbleGrant(PresentationKind.EventCard, channel))
             {
                 var res = RewardExecutor.Grant(def.Reward, p, new System.Random(), "force event=" + id + " bubble");
+                if (def.Reward is { RunsTopLevelOp: true })
+                    DailyFlow.NoteOpAppliedWithoutCard(id);
                 if (res.Queued.Count > 0)
                 {
                     var slotDir = DailyFlow.SlotDir();
@@ -163,8 +172,15 @@ internal static class SpikeForce
             }
             else if (def.Reward is { RunsTopLevelOp: true })
             {
-                var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, new System.Random());
-                DsTrace.Write("force", "强制惩罚：event=" + id + " op=" + def.Reward.Op + "[" + summary + "]");
+                if (Patch_OpOnConfirm.Installed)
+                    DsTrace.Write("force", "强制惩罚：event=" + id + " op=" + def.Reward.Op
+                        + "@confirm（待点\"我知道了\"后执行）");
+                else
+                {
+                    // 回退（确认补丁未挂载）：旧行为——弹卡同帧执行
+                    var summary = PunishmentOps.Apply(def.Reward.Op, def.Reward.OpParam, p.LossMult, new System.Random());
+                    DsTrace.Write("force", "强制惩罚：event=" + id + " op=" + def.Reward.Op + "[" + summary + "]");
+                }
             }
         }
         catch (Exception e) { DsTrace.WriteThrottled("force", "ForceGrant: " + e.Message); }

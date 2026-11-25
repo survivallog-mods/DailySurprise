@@ -37,7 +37,10 @@ namespace SurvivalLog.DailySurprise;
 ///   Buffs → AddBuff+BuffTargetType/BuffTargetID=1/0（原生行 6014/6106 实证配对）；
 ///   PermBuffByTier（E2/L3）→ 注入时按当前档 RewardMath.PickPermBuff 烘焙变体 Id 进 AddBuff；
 ///   Attrs → AttriKeyChange/AttriValueChange（整数增量；小数增量抛错走代码路径）；
-///   Op 系（耐久/腐坏/偷窃/永久属性）→ 不承载（RewardSetManager 无对应声明式执行器，代码路径保留）。
+///   Op 系（耐久/腐坏/偷窃/永久属性）→ 不承载，代码路径保留（PunishmentOps；A1 起事件卡确认后执行）——
+///   原生声明式表达不了本目录语义：百分比耐久、随机抽 N 处（M1/H2/D2）、食物腐坏（M4）、随机一项
+///   永久属性（D1，原生 AttriKeyChange 只用 1~5 当前值）。原生另有声明式惩罚执行器未采用：
+///   FurniturelD+FurnitureHP=[min,max] 绝对值扣宅内同配置家具耐久（ExecuteFurnitureReward）、ItemCost、负属性。
 /// - 选项行（declarative，Task 10）：子事件 RewardSetId 声明式发奖——Items→ItemChange、
 ///   Buffs→AddBuff+BuffTargetType/BuffTargetID=1/0、ItemCosts→ItemCost（itemId 重复=件数，原生行 68252 同编码）。</summary>
 public static class InjectorMapping
